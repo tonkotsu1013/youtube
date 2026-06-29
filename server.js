@@ -1,0 +1,595 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+// ↓ この1行を追加します！
+app.use(express.static(path.join(__dirname)));
+
+// データベース初期化
+const db = new sqlite3.Database('./database.sqlite', (err) => {
+    if (err) console.error('Database connection error:', err.message);
+    else console.log('Connected to the SQLite database.');
+});
+
+db.serialize(() => {
+    db.run(`CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT UNIQUE, name TEXT UNIQUE)`);
+    db.run(`CREATE TABLE IF NOT EXISTS friends (user_code TEXT, friend_code TEXT, status TEXT, is_favorite INTEGER DEFAULT 0, PRIMARY KEY (user_code, friend_code))`); 
+    db.run(`CREATE TABLE IF NOT EXISTS match_history (id INTEGER PRIMARY KEY AUTOINCREMENT, p1_code TEXT, p2_code TEXT, p1_type TEXT, p2_type TEXT, date DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+    // 勝敗記録用のカラムを追加
+    db.run(`ALTER TABLE match_history ADD COLUMN winner_code TEXT`, (err) => {}); 
+db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_code TEXT, receiver_code TEXT, group_id INTEGER, message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+db.run(`CREATE TABLE IF NOT EXISTS chat_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, owner_code TEXT)`);
+    db.run(`CREATE TABLE IF NOT EXISTS group_members (group_id INTEGER, user_code TEXT, PRIMARY KEY (group_id, user_code))`);
+});
+
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+
+const onlineUsers = {}; 
+const socketMap = {};   
+let matchmakingQueue = [];
+const activeMatches = {}; 
+
+io.on('connection', (socket) => {
+// 1. 厳密なログイン処理
+    socket.on('login', (data, callback) => {
+        const { code, name } = data;
+        
+        if (onlineUsers[socket.id]) {
+            delete socketMap[onlineUsers[socket.id].code];
+            delete onlineUsers[socket.id];
+        }
+
+        db.get(`SELECT * FROM users WHERE code = ? OR name = ?`, [code, name], (err, row) => {
+            if (row) {
+                // ① データベースに一致するユーザーが見つかった場合
+                if (row.code === code && row.name === name) {
+                    // --- 以下の3行を追加 ---
+                    if (socketMap[code] && socketMap[code] !== socket.id) {
+                        delete onlineUsers[socketMap[code]];
+                    }
+                    // -----------------------
+                    setupUserStatus(socket.id, code, name);
+                    callback({ success: true, message: 'ログインしました' });
+                } else {
+                    // 名前かコードのどちらかが、他の誰かに既に使われている場合
+                    callback({ success: false, message: '指定されたコードまたは名前は既に使用されています' });
+                }
+            } else {
+                // ② データベースにデータがなかった場合（新規登録）
+                db.run(`INSERT INTO users (code, name) VALUES (?, ?)`, [code, name], function(err) {
+                    if (err) return callback({ success: false, message: '登録に失敗しました' });
+                    setupUserStatus(socket.id, code, name);
+                    callback({ success: true, message: '新規登録＆ログインしました' });
+                });
+            }
+        });
+    });
+
+    function setupUserStatus(socketId, code, name) {
+        onlineUsers[socketId] = { code, name, status: 'idle' };
+        socketMap[code] = socketId;
+        io.emit('friends_data_update'); 
+    }
+
+    // 2. フレンド取得
+    socket.on('get_friends', () => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        
+        db.all(`
+            SELECT u.code, u.name, f.status, f.is_favorite 
+            FROM friends f 
+            JOIN users u ON (f.friend_code = u.code AND f.user_code = ?) 
+                         OR (f.user_code = u.code AND f.friend_code = ? AND f.status = 'pending')
+        `, [user.code, user.code], (err, rows) => {
+            if (err) return;
+            const friendsList = rows.map(r => ({
+                code: r.code, name: r.name, status: r.status, is_favorite: r.is_favorite,
+                isOnline: !!socketMap[r.code],
+                currentActivity: socketMap[r.code] ? onlineUsers[socketMap[r.code]].status : 'offline'
+            }));
+            socket.emit('friends_data', friendsList);
+        });
+    });
+
+    socket.on('toggle_favorite', (targetCode) => {
+        const user = onlineUsers[socket.id];
+        if(!user) return;
+        db.run(`UPDATE friends SET is_favorite = CASE WHEN is_favorite = 1 THEN 0 ELSE 1 END WHERE user_code = ? AND friend_code = ?`, [user.code, targetCode], () => {
+            socket.emit('friends_data_update');
+        });
+    });
+
+    socket.on('delete_friend', (targetCode) => {
+        const user = onlineUsers[socket.id];
+        if(!user) return;
+        db.run(`DELETE FROM friends WHERE (user_code = ? AND friend_code = ?) OR (user_code = ? AND friend_code = ?)`, [user.code, targetCode, targetCode, user.code], () => {
+            socket.emit('friends_data_update');
+            if (socketMap[targetCode]) io.to(socketMap[targetCode]).emit('friends_data_update');
+        });
+    });
+
+    socket.on('get_history', (targetCode) => {
+        const user = onlineUsers[socket.id];
+        if(!user) return;
+        db.all(`SELECT * FROM match_history WHERE (p1_code = ? AND p2_code = ?) OR (p1_code = ? AND p2_code = ?) ORDER BY date DESC LIMIT 15`, 
+        [user.code, targetCode, targetCode, user.code], (err, rows) => {
+            socket.emit('history_data', { targetCode, history: rows || [] });
+        });
+    });
+
+    // 3. フレンド申請系
+    socket.on('send_friend_request', (targetCode, callback) => {
+        const user = onlineUsers[socket.id];
+        if (!user || user.code === targetCode) return callback({ success: false, message: '無効な操作です。' });
+        db.get(`SELECT * FROM users WHERE code = ?`, [targetCode], (err, row) => {
+            if (!row) return callback({ success: false, message: 'ユーザーが見つかりません。' });
+            db.run(`INSERT INTO friends (user_code, friend_code, status) VALUES (?, ?, 'pending')`, [user.code, targetCode], (err) => {
+                if (err) return callback({ success: false, message: '既に申請済みかフレンドです。' });
+                callback({ success: true, message: '申請を送信しました。' });
+                if (socketMap[targetCode]) io.to(socketMap[targetCode]).emit('friends_data_update');
+            });
+        });
+    });
+
+    socket.on('respond_friend_request', (data) => {
+        const user = onlineUsers[socket.id];
+        const { targetCode, accept } = data;
+        if (!user) return;
+        if (accept) {
+            db.run(`UPDATE friends SET status = 'accepted' WHERE user_code = ? AND friend_code = ?`, [targetCode, user.code]);
+            db.run(`INSERT OR IGNORE INTO friends (user_code, friend_code, status) VALUES (?, ?, 'accepted')`, [user.code, targetCode]);
+        } else {
+            db.run(`DELETE FROM friends WHERE user_code = ? AND friend_code = ?`, [targetCode, user.code]);
+        }
+        socket.emit('friends_data_update');
+        if (socketMap[targetCode]) io.to(socketMap[targetCode]).emit('friends_data_update');
+    });
+
+    // 4. マッチメイキングと対戦
+    socket.on('challenge_friend', (targetCode) => {
+        const user = onlineUsers[socket.id];
+        const targetSocketId = socketMap[targetCode];
+        if (user && targetSocketId && onlineUsers[targetSocketId].status === 'idle') {
+            io.to(targetSocketId).emit('incoming_challenge', { code: user.code, name: user.name });
+        }
+    });
+
+    socket.on('respond_challenge', (data) => {
+        const user = onlineUsers[socket.id];
+        const { targetCode, accept } = data;
+        const targetSocketId = socketMap[targetCode];
+        if (accept && targetSocketId) {
+            const matchId = `match_${Date.now()}`;
+            activeMatches[matchId] = { p1: targetCode, p2: user.code, p1Ready: false, p2Ready: false };
+            onlineUsers[socket.id].status = 'playing';
+            onlineUsers[targetSocketId].status = 'playing';
+            io.emit('friends_data_update'); 
+            io.to(targetSocketId).emit('match_found', { matchId, opponentName: user.name, opponentCode: user.code });
+            socket.emit('match_found', { matchId, opponentName: onlineUsers[targetSocketId].name, opponentCode: targetCode });
+        } else if (targetSocketId) {
+            io.to(targetSocketId).emit('challenge_rejected', { name: user.name });
+        }
+    });
+
+    socket.on('join_random_match', () => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        user.status = 'matching';
+        io.emit('friends_data_update');
+
+        const validQueue = matchmakingQueue.filter(id => onlineUsers[id] && onlineUsers[id].status === 'matching');
+        if (validQueue.length > 0) {
+            const opponentSocketId = validQueue.shift();
+            const opponent = onlineUsers[opponentSocketId];
+            if (opponent && opponentSocketId !== socket.id) {
+                const matchId = `match_${Date.now()}`;
+                activeMatches[matchId] = { p1: opponent.code, p2: user.code, p1Ready: false, p2Ready: false };
+                user.status = 'playing'; opponent.status = 'playing';
+                matchmakingQueue = matchmakingQueue.filter(id => id !== opponentSocketId && id !== socket.id);
+                io.emit('friends_data_update');
+                
+                io.to(opponentSocketId).emit('match_found', { matchId, opponentName: user.name, opponentCode: user.code });
+                socket.emit('match_found', { matchId, opponentName: opponent.name, opponentCode: opponent.code });
+                return;
+            }
+        }
+        if (!matchmakingQueue.includes(socket.id)) matchmakingQueue.push(socket.id);
+    });
+
+    socket.on('match_ready', (data) => {
+        const { matchId, gameType } = data;
+        const match = activeMatches[matchId];
+        if (!match) return;
+
+        const user = onlineUsers[socket.id];
+        if (match.p1 === user.code) { match.p1Ready = true; match.p1Type = gameType; }
+        if (match.p2 === user.code) { match.p2Ready = true; match.p2Type = gameType; }
+
+        if (match.p1Ready && match.p2Ready) {
+            // DBにマッチ情報を初期登録 (winner_codeはNULL) - startedAtを記録しておく
+            match.startedAt = Date.now();
+            db.run(`INSERT INTO match_history (p1_code, p2_code, p1_type, p2_type) VALUES (?, ?, ?, ?)`, 
+                   [match.p1, match.p2, match.p1Type, match.p2Type], function(err) {
+                if(!err) {
+                    match.dbId = this.lastID;
+                } else {
+                    console.error('match_history INSERT error:', err);
+                }
+            });
+
+            io.to(socketMap[match.p1]).emit('start_countdown', { opponentType: match.p2Type, opponentName: onlineUsers[socketMap[match.p2]].name });
+            io.to(socketMap[match.p2]).emit('start_countdown', { opponentType: match.p1Type, opponentName: onlineUsers[socketMap[match.p1]].name });
+        }
+    });
+
+    socket.on('game_action', (data) => {
+        const { matchId, action, payload, gameType } = data;
+        const match = activeMatches[matchId];
+        if (!match) return;
+        
+        const user = onlineUsers[socket.id];
+        const targetCode = (match.p1 === user.code) ? match.p2 : match.p1;
+        const targetSocketId = socketMap[targetCode];
+        
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('opponent_action', { 
+                action, 
+                payload, 
+                gameType 
+            });
+        }
+    });
+
+    // 5. ゲームオーバーと勝敗記録、ステータスリセット
+    // クライアントがgame_overを送ってきた＝クライアントが負け
+    socket.on('game_over', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        
+        const matchId = data.matchId;
+        const match = activeMatches[matchId];
+        
+        if (match) {
+            // 既に処理済み（両者からのrace condition防止）
+            if (match.gameOverHandled) return;
+            match.gameOverHandled = true;
+
+            const loserCode = user.code;
+            const winnerCode = (match.p1 === loserCode) ? match.p2 : match.p1;
+            
+            const winnerSocketId = socketMap[winnerCode];
+            const loserSocketId = socketMap[loserCode];
+
+            // 1. データベースの match_history に勝者を記録
+            // dbIdが設定済みなら直接UPDATE、未設定ならコードで検索してUPDATE
+            const doUpdate = (id) => {
+                db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id], (err) => {
+                    if (err) console.error('UPDATE winner_code error:', err);
+                });
+            };
+            if (match.dbId) {
+                doUpdate(match.dbId);
+            } else {
+                // dbIdがまだ設定されていない場合はコードで最新レコードを探す
+                db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
+                    [match.p1, match.p2], (err, row) => {
+                        if (row) doUpdate(row.id);
+                    });
+            }
+
+            // 2. 勝者に 'win' のシグナルを送信
+            if (winnerSocketId) {
+                io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_game_over' });
+                if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
+            }
+            
+            // 3. 敗者に 'lose' のシグナルを送信（確認用。ローカルでは既に表示済み）
+            if (loserSocketId) {
+                io.to(loserSocketId).emit('game_result', { result: 'lose', reason: 'game_over' });
+                if (onlineUsers[loserSocketId]) onlineUsers[loserSocketId].status = 'idle';
+            }
+
+            // 4. マッチを終了して削除
+            delete activeMatches[matchId];
+            io.emit('friends_data_update'); // ステータスをidleに更新
+        }
+    });
+    
+    socket.on('return_to_lobby', () => {
+        const user = onlineUsers[socket.id];
+        if (user) {
+            user.status = 'idle';
+            matchmakingQueue = matchmakingQueue.filter(id => id !== socket.id);
+            
+            // 進行中のマッチがあれば、対戦相手を勝者として記録・通知
+            for (const matchId in activeMatches) {
+                const match = activeMatches[matchId];
+                if (match.p1 === user.code || match.p2 === user.code) {
+                    if (match.gameOverHandled) { delete activeMatches[matchId]; continue; }
+                    match.gameOverHandled = true;
+                    const winnerCode = (match.p1 === user.code) ? match.p2 : match.p1;
+                    const winnerSocketId = socketMap[winnerCode];
+                    const doUp = (id) => db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id]);
+                    if (match.dbId) { doUp(match.dbId); }
+                    else {
+                        db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
+                            [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
+                    }
+                    if (winnerSocketId) {
+                        io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_left' });
+                        if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
+                    }
+                    delete activeMatches[matchId];
+                }
+            }
+            
+            io.emit('friends_data_update');
+        }
+    });
+
+// ----- ここから追加（io.on('connection', ...) の中） -----
+    socket.on('get_chat_contacts', () => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        db.all(`SELECT u.code, u.name FROM friends f JOIN users u ON f.friend_code = u.code WHERE f.user_code = ? AND f.status = 'accepted'`, [user.code], (err, friends) => {
+            db.all(`SELECT g.id, g.name, g.owner_code FROM chat_groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_code = ?`, [user.code], (err, groups) => {
+                socket.emit('chat_contacts_data', { friends: friends || [], groups: groups || [] });
+            });
+        });
+    });
+
+    socket.on('create_group', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { name, members } = data; 
+        db.run(`INSERT INTO chat_groups (name, owner_code) VALUES (?, ?)`, [name, user.code], function(err) {
+            if (err) return;
+            const groupId = this.lastID;
+            const allMembers = [user.code, ...members];
+            const stmt = db.prepare(`INSERT INTO group_members (group_id, user_code) VALUES (?, ?)`);
+            allMembers.forEach(m => stmt.run(groupId, m));
+            stmt.finalize();
+            allMembers.forEach(m => {
+                if (socketMap[m]) io.to(socketMap[m]).emit('chat_contacts_update');
+            });
+        });
+    });
+
+    socket.on('delete_group', (groupId) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        db.get(`SELECT owner_code FROM chat_groups WHERE id = ?`, [groupId], (err, row) => {
+            if (row && row.owner_code === user.code) {
+                db.all(`SELECT user_code FROM group_members WHERE group_id = ?`, [groupId], (err, members) => {
+                    db.run(`DELETE FROM chat_groups WHERE id = ?`, [groupId]);
+                    db.run(`DELETE FROM group_members WHERE group_id = ?`, [groupId]);
+                    if(members) {
+                        members.forEach(m => {
+                            if (socketMap[m.user_code]) io.to(socketMap[m.user_code]).emit('chat_contacts_update');
+                        });
+                    }
+                });
+            }
+        });
+    });
+
+    socket.on('send_chat_message', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { targetCode, groupId, message } = data;
+        db.run(`INSERT INTO messages (sender_code, receiver_code, group_id, message) VALUES (?, ?, ?, ?)`,
+            [user.code, targetCode || null, groupId || null, message], function(err) {
+            if (err) return;
+            const msgObj = { id: this.lastID, sender_code: user.code, sender_name: user.name, receiver_code: targetCode, group_id: groupId, message, timestamp: new Date() };
+            
+            if (groupId) {
+                db.all(`SELECT user_code FROM group_members WHERE group_id = ?`, [groupId], (err, members) => {
+                    if (members) {
+                        members.forEach(m => {
+                            if (socketMap[m.user_code]) io.to(socketMap[m.user_code]).emit('receive_chat_message', msgObj);
+                        });
+                    }
+                });
+            } else if (targetCode) {
+                socket.emit('receive_chat_message', msgObj);
+                if (socketMap[targetCode]) io.to(socketMap[targetCode]).emit('receive_chat_message', msgObj);
+            }
+        });
+    });
+
+    socket.on('get_chat_messages', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { targetCode, groupId } = data;
+        if (groupId) {
+            db.all(`SELECT m.*, u.name as sender_name FROM messages m JOIN users u ON m.sender_code = u.code WHERE m.group_id = ? ORDER BY m.timestamp ASC`, [groupId], (err, rows) => {
+                socket.emit('chat_messages_data', rows || []);
+            });
+        } else if (targetCode) {
+            db.all(`SELECT m.*, u.name as sender_name FROM messages m JOIN users u ON m.sender_code = u.code WHERE (m.sender_code = ? AND m.receiver_code = ?) OR (m.sender_code = ? AND m.receiver_code = ?) ORDER BY m.timestamp ASC`, 
+            [user.code, targetCode, targetCode, user.code], (err, rows) => {
+                socket.emit('chat_messages_data', rows || []);
+            });
+        }
+    });
+
+    socket.on('vc_signal', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        if (socketMap[data.target]) {
+            io.to(socketMap[data.target]).emit('vc_signal', { sender: user.code, signal: data.signal });
+        }
+    });
+
+// --------------------------------------------------
+    // グループボイスチャットのシグナリング
+    socket.on('group_vc_signal', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { groupId, signal, target } = data;
+        
+        if (target) {
+            // 特定のターゲット（アンサーを返す相手など）が指定されている場合
+            if (socketMap[target]) {
+                io.to(socketMap[target]).emit('group_vc_signal', { sender: user.code, groupId, signal });
+            }
+        } else {
+            // ターゲット指定がない場合は、自分以外のグループメンバー全員にブロードキャスト
+            db.all(`SELECT user_code FROM group_members WHERE group_id = ?`, [groupId], (err, members) => {
+                if (members) {
+                    members.forEach(m => {
+                        if (m.user_code !== user.code && socketMap[m.user_code]) {
+                            io.to(socketMap[m.user_code]).emit('group_vc_signal', { sender: user.code, groupId, signal });
+                        }
+                    });
+                }
+            });
+        }
+    });
+
+    // グループメンバーの追加（オーナーのみ）
+    socket.on('add_group_member', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { groupId, memberCode } = data;
+        
+        db.get(`SELECT owner_code FROM chat_groups WHERE id = ?`, [groupId], (err, row) => {
+            if (row && row.owner_code === user.code) {
+                db.run(`INSERT OR IGNORE INTO group_members (group_id, user_code) VALUES (?, ?)`, [groupId, memberCode], () => {
+                    if (socketMap[memberCode]) io.to(socketMap[memberCode]).emit('chat_contacts_update');
+                    io.to(socket.id).emit('chat_contacts_update');
+                });
+            }
+        });
+    });
+
+    // グループメンバーの削除（オーナーのみ）
+    socket.on('remove_group_member', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { groupId, memberCode } = data;
+        
+        db.get(`SELECT owner_code FROM chat_groups WHERE id = ?`, [groupId], (err, row) => {
+            if (row && row.owner_code === user.code && memberCode !== user.code) { // オーナー自身は削除できないようにする
+                db.run(`DELETE FROM group_members WHERE group_id = ? AND user_code = ?`, [groupId, memberCode], () => {
+                    if (socketMap[memberCode]) io.to(socketMap[memberCode]).emit('chat_contacts_update');
+                    io.to(socket.id).emit('chat_contacts_update');
+                });
+            }
+        });
+    });
+
+    // グループからの脱退（オーナー以外）
+    socket.on('leave_group', (groupId) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        
+        db.get(`SELECT owner_code FROM chat_groups WHERE id = ?`, [groupId], (err, row) => {
+            if (row && row.owner_code !== user.code) { // オーナーは脱退できない（削除機能を使う）
+                db.run(`DELETE FROM group_members WHERE group_id = ? AND user_code = ?`, [groupId, user.code], () => {
+                    socket.emit('chat_contacts_update');
+                });
+            }
+        });
+    });
+
+    // メッセージの削除機能（自分の送信したメッセージのみ削除可能）
+    socket.on('delete_message', (messageId) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        
+        db.get(`SELECT sender_code, group_id, receiver_code FROM messages WHERE id = ?`, [messageId], (err, row) => {
+            if (row && row.sender_code === user.code) {
+                db.run(`DELETE FROM messages WHERE id = ?`, [messageId], () => {
+                    // グループメッセージの場合、全メンバーに削除を通知
+                    if (row.group_id) {
+                        db.all(`SELECT user_code FROM group_members WHERE group_id = ?`, [row.group_id], (err, members) => {
+                            if (members) {
+                                members.forEach(m => { 
+                                    if (socketMap[m.user_code]) {
+                                        io.to(socketMap[m.user_code]).emit('message_deleted', messageId); 
+                                    }
+                                });
+                            }
+                        });
+                    } 
+                    // 個人メッセージの場合、お互いに削除を通知
+                    else if (row.receiver_code) {
+                        socket.emit('message_deleted', messageId);
+                        if (socketMap[row.receiver_code]) {
+                            io.to(socketMap[row.receiver_code]).emit('message_deleted', messageId);
+                        }
+                    }
+                });
+            }
+        });
+    });
+
+    // アカウントの削除機能
+    socket.on('delete_account', () => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const code = user.code;
+        
+        // 関連するユーザーデータを削除
+        db.run(`DELETE FROM users WHERE code = ?`, [code]);
+        db.run(`DELETE FROM friends WHERE user_code = ? OR friend_code = ?`, [code, code]);
+        db.run(`DELETE FROM group_members WHERE user_code = ?`, [code]);
+        db.run(`DELETE FROM messages WHERE sender_code = ? OR receiver_code = ?`, [code, code]);
+        // ※オーナーになっているグループ自体の削除が必要な場合は、連鎖削除の処理を追加してください。
+        
+        delete socketMap[code];
+        delete onlineUsers[socket.id];
+        
+        io.emit('friends_data_update');
+        socket.emit('account_deleted');
+        socket.disconnect();
+    });
+    // --------------------------------------------------
+    // ----- ここまで追加 -----
+
+    socket.on('disconnect', () => {
+        const user = onlineUsers[socket.id];
+        if (user) {
+            matchmakingQueue = matchmakingQueue.filter(id => id !== socket.id);
+            
+            for (const matchId in activeMatches) {
+                const match = activeMatches[matchId];
+                if (match.p1 === user.code || match.p2 === user.code) {
+                    if (match.gameOverHandled) { delete activeMatches[matchId]; continue; }
+                    match.gameOverHandled = true;
+                    const winnerCode = (match.p1 === user.code) ? match.p2 : match.p1;
+                    const winnerSocketId = socketMap[winnerCode];
+                    const doUp = (id) => db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id]);
+                    if (match.dbId) { doUp(match.dbId); }
+                    else {
+                        db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
+                            [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
+                    }
+                    if (winnerSocketId) {
+                        io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'disconnect' });
+                        if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
+                    }
+                    delete activeMatches[matchId];
+                }
+            }
+
+            delete socketMap[user.code];
+            delete onlineUsers[socket.id];
+            io.emit('friends_data_update');
+        }
+    });
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
