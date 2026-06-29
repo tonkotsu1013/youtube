@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マイページ トップ</title>
+    <style>
+        /* 全体の背景とフォントの設定 */
+        body {
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            color: #f8fafc;
+            min-height: 100vh;
+            margin: 0;
+            padding: 40px 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* コンテナ全体の幅制限 */
+        .container {
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* タイトルのデザイン（グラデーション文字とネオン効果） */
+        h1 {
+            font-size: 1.8rem;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            background: linear-gradient(45deg, #38bdf8, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            position: relative;
+            padding-bottom: 15px;
+        }
+
+        /* タイトルの下の装飾線 */
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 4px;
+            background: linear-gradient(90deg, #38bdf8, #c084fc);
+            border-radius: 2px;
+        }
+
+        /* リストのスタイル除去 */
+        ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        li {
+            margin-bottom: 16px;
+            perspective: 1000px; /* 3D効果の準備 */
+        }
+
+        /* リンクボタンのサイバーモダンなデザイン */
+        a {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 18px 24px;
+            background: rgba(255, 255, 255, 0.03);
+            color: #e2e8f0;
+            text-decoration: none;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            font-weight: 600;
+            font-size: 1.05rem;
+            letter-spacing: 0.03em;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(8px); /* 背景をぼかす（高級感） */
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        /* 右側に矢印（＞）を自動で追加 */
+        a::after {
+            content: '→';
+            font-size: 1.2rem;
+            color: #64748b;
+            transition: transform 0.4s, color 0.4s;
+        }
+
+        /* タップ・ホバーしたときの極上アニメーション */
+        a:hover {
+            background: rgba(255, 255, 255, 0.08);
+            color: #ffffff;
+            border-color: rgba(56, 189, 248, 0.4);
+            transform: translateY(-4px) scale(1.02);
+            box-shadow: 0 10px 25px -5px rgba(56, 189, 248, 0.2), 0 8px 10px -6px rgba(56, 189, 248, 0.2);
+        }
+
+        /* ホバー時に矢印を動かす */
+        a:hover::after {
+            color: #38bdf8;
+            transform: translateX(4px);
+        }
+
+        /* スマホでタップした瞬間のフィードバック */
+        a:active {
+            transform: translateY(-1px) scale(0.99);
+            background: rgba(255, 255, 255, 0.12);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>作成したページ一覧</h1>
+
+        <ul>
+            <li><a href="tetris.html">TETRIS</a></li>
+            <li><a href="マイクラ.html">MINECRAFT</a></li>
+            <li><a href="ビリヤード.html">ビリヤード</a></li>
+            <li><a href="bowling.html">ボウリング</a></li>
+            <li><a href="スイカゲーム.html">スイカゲーム</a></li>
+            <li><a href="ブロックブラスト.html">BLOCK BLAST</a></li>
+            <li><a href="b.html">勉強</a></li>
+            <li><a href="VR.html">3Dgame</a></li>
+            <li><a href="Hololive TETRIS.html">Hololive TETRIS</a></li>
+            <li><a href="◎付け.html">◎付け</a></li>
+            <li><a href="tree.js VRM.html">VRM</a></li>
+            </ul>
+    </div>
+
+</body>
+</html>
