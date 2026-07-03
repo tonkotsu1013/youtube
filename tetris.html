@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>PUYO TETRIS – Complete Enhanced AI/SRS + Puyo</title>
+<title>ブロックパズル</title>
 <style>
 :root{
   --bg:#071028;
@@ -226,8 +226,8 @@ function updateLangUI() {
 <div id="titleOverlay" class="overlay show">
   <div class="overlayCard">
     <div style="text-align:center">
-      <div class="titleBig">PUYO TETRIS</div>
-      <div style="margin-top:8px;color:var(--muted)">ぷよぷよ + テトリス 完全版 ৻(＾▽＾)/</div>
+      <div class="titleBig">クアッド-ブロック パズル</div>
+      <div style="margin-top:8px;color:var(--muted)">クアッド-ブロック パズル ৻(＾▽＾)/</div>
       
       <div style="margin-top:8px;">
         <button id="langBtn" class="btn secondary" style="padding:4px 8px; font-size:12px;">🌐 EN / JA</button>
@@ -235,25 +235,25 @@ function updateLangUI() {
 
       <div style="margin-top:16px;display:flex;gap:12px;justify-content:center;align-items:center;flex-wrap:wrap;">
         <select id="titleModeSelect" style="padding:8px;border-radius:8px;color:#000;">
-          <optgroup label="── TETRIS ──">
+          <optgroup label="── ブロック パズル ──">
             <option value="marathon">Marathon</option>
             <option value="free_marathon">Free Marathon</option>
             <option value="time">Time Attack</option>
             <option value="ultra">Ultra (3 Min)</option>
             <option value="master">Master</option>
             <option value="purify">Purify</option>
-            <option value="vs_local">VS Tetris (2P Local)</option>
-            <option value="vs_ai">VS Tetris (1P vs AI)</option>
+            <option value="vs_local">VS Brock (2P Local)</option>
+            <option value="vs_ai">VS Brock (1P vs AI)</option>
           </optgroup>
-          <optgroup label="── PUYO PUYO ──">
-            <option value="puyo_marathon">Puyo Marathon</option>
-            <option value="puyo_free_marathon">Puyo Free Marathon</option>
-            <option value="puyo_vs_local">VS Puyo (2P Local)</option>
-            <option value="puyo_vs_ai">VS Puyo (1P vs AI)</option>
+          <optgroup label="── スライム パズル ──">
+            <option value="puyo_marathon">Slime Marathon</option>
+            <option value="puyo_free_marathon">Slime Free Marathon</option>
+            <option value="puyo_vs_local">VS Slime (2P Local)</option>
+            <option value="puyo_vs_ai">VS Slime (1P vs AI)</option>
           </optgroup>
-          <optgroup label="── PUYO TETRIS ──">
-            <option value="puyotet_vs_local">PuyoTet VS (2P Local)</option>
-            <option value="puyotet_vs_ai">PuyoTet VS (1P vs AI)</option>
+          <optgroup label="── スライムVSブロック ──">
+            <option value="puyotet_vs_local">Slime VS Block(2P Local)</option>
+            <option value="puyotet_vs_ai">SlimeTet VS Block(1P vs AI)</option>
           </optgroup>
           <optgroup label="── BALANCE (PHYSICS) ──">
             <option value="balance">Balance Mode（物理バランス）※開発中</option>
@@ -286,16 +286,16 @@ function updateLangUI() {
             <div style="text-align:center;">
               <div style="font-size:12px; color:var(--accent2); font-weight:800; margin-bottom:4px;">P1</div>
               <select id="p1TypeSelect" class="playerTypeSelect" style="color:#000; padding:4px; border-radius:4px;">
-                <option value="tetris">🟦 Tetris</option>
-                <option value="puyo">🔴 Puyo</option>
+                <option value="tetris">🟦 ブロック</option>
+                <option value="puyo">🔴 スライム</option>
               </select>
             </div>
             <div style="font-size:18px; color:var(--muted);">VS</div>
             <div style="text-align:center;">
               <div style="font-size:12px; color:#ff6b6b; font-weight:800; margin-bottom:4px;">P2</div>
               <select id="p2TypeSelect" class="playerTypeSelect" style="color:#000; padding:4px; border-radius:4px;">
-                <option value="tetris">🟦 Tetris</option>
-                <option value="puyo" selected>🔴 Puyo</option>
+                <option value="tetris">🟦 Block</option>
+                <option value="puyo" selected>🔴 Slime</option>
               </select>
             </div>
           </div>
@@ -339,14 +339,14 @@ function updateLangUI() {
           <div style="display:flex;gap:12px;align-items:center">
             <label><input id="optShowRanking" type="checkbox" checked /> Show</label>
             <select id="optRankMode" style="padding:4px;border-radius:4px;color:#000;">
-              <option value="marathon">Tetris: Marathon</option>
-              <option value="free_marathon">Tetris: Free Marathon</option>
-              <option value="time">Tetris: Time Attack</option>
-              <option value="ultra">Tetris: Ultra</option>
-              <option value="master">Tetris: Master</option>
-              <option value="purify">Tetris: Purify</option>
-              <option value="vs_local">Tetris: VS Local</option>
-              <option value="vs_ai">Tetris: VS AI</option>
+              <option value="marathon">Brock: Marathon</option>
+              <option value="free_marathon">Brock: Free Marathon</option>
+              <option value="time">Brock: Time Attack</option>
+              <option value="ultra">Brock: Ultra</option>
+              <option value="master">Brock: Master</option>
+              <option value="purify">Brock: Purify</option>
+              <option value="vs_local">Brock: VS Local</option>
+              <option value="vs_ai">Brock: VS AI</option>
               <option value="puyo_marathon">Puyo: Marathon</option>
               <option value="puyo_free_marathon">Puyo: Free Marathon</option>
               <option value="puyo_vs_local">Puyo: VS Local</option>
@@ -543,8 +543,8 @@ function updateLangUI() {
     <div style="margin:24px 0; background:rgba(255,255,255,0.05); padding: 20px; border-radius: 12px;">
       <p style="font-size:18px; font-weight:bold; margin-bottom:12px;">あなたのプレイスタイルを選択：</p>
       <select id="onlineMyGameType" style="padding:12px; font-size:20px; border-radius:8px; width: 80%; text-align:center;">
-        <option value="tetris">🟦 テトリス</option>
-        <option value="puyo">🔴 ぷよぷよ</option>
+        <option value="tetris">🟦 ブロック</option>
+        <option value="puyo">🔴 スライム</option>
       </select>
     </div>
     <button id="matchReadyBtn" class="bigBtn" style="font-size:22px; padding: 14px 40px; box-shadow: 0 4px 15px rgba(106, 163, 255, 0.4);">準備完了</button>
@@ -1142,7 +1142,7 @@ async function placePiece(player){
     if(!seekingReplay) {
       if(isPerfectClear) { showCenterNotice(player, 'PERFECT CLEAR!', {color:'#ffeb3b', time:2000}); player.score += 3000; playClear(totalLines, true); }
       else if (isTspin && tspinType) { showCenterNotice(player, `T-SPIN ${tspinType.toUpperCase()} ${totalLines}`, {color:'#ffeb3b', time:1400}); playClear(totalLines, false); }
-      else if (totalLines >= 4) { showCenterNotice(player, 'TETRIS!', {color:'#6aa3ff', time:1400}); playClear(totalLines, false); }
+      else if (totalLines >= 4) { showCenterNotice(player, 'Quad-LINE!', {color:'#6aa3ff', time:1400}); playClear(totalLines, false); }
       else { showCenterNotice(player, `${totalLines} LINE`, {color:'#fff', time:1000}); playClear(totalLines, false); }
 
       if(player.b2b>1) setTimeout(()=>showCenterNotice(player, 'B2B', {color:'#9b59b6', time:1000}), 400);
@@ -1395,7 +1395,7 @@ function togglePause(){
   } else {
     $('pauseBtn').textContent = t("pause");
     if(el.classList.contains('show')) el.classList.remove('show');
-    el.querySelector('.titleBig').textContent = 'PUYO TETRIS';
+    el.querySelector('.titleBig').textContent = 'Block Slime';
     if(tStart) tStart.style.display = '';
     if(tMode) tMode.style.display = '';
     const modeVal = tMode ? tMode.value : mode;
@@ -2069,7 +2069,7 @@ function backToTitle(){
   if(tAILvl && mode === 'vs_ai') tAILvl.style.display = '';
   if(tSub && mode === 'time') tSub.style.display = '';
   if(pSelect && mode.startsWith('puyotet_')) pSelect.style.display = '';
-  $('titleOverlay').querySelector('.titleBig').textContent = 'PUYO TETRIS';
+  $('titleOverlay').querySelector('.titleBig').textContent = 'Block Slime';
 }
 
 $('titleStart').addEventListener('click', ()=> startGame($('titleModeSelect').value));
@@ -3366,7 +3366,7 @@ window.addEventListener('keyup', (e) => {
   if(puyoP2 && !puyoP2.isAI && !window.isOnlineMatch) { if(act2==='left') puyoStopRepeat(puyoP2,'left'); if(act2==='right') puyoStopRepeat(puyoP2,'right'); if(act2==='soft') puyoStopRepeat(puyoP2,'soft'); }
 }, {capture: false});
 
-if($('titleOverlay')) { const tb = $('titleOverlay').querySelector('.titleBig'); if(tb) tb.textContent = 'PUYO TETRIS'; }
+if($('titleOverlay')) { const tb = $('titleOverlay').querySelector('.titleBig'); if(tb) tb.textContent = 'Block Slime'; }
 drawAll();
 
 /* =============================================================
