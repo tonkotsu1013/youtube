@@ -1,15 +1,1 @@
-name: Keep Render Alive
 
-on:
-  schedule:
-    # 15分ごとに自動実行
-    - cron: '*/14 * * * *'
-  workflow_dispatch:
-
-jobs:
-  ping:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Ping Render URL
-        # ★ここをあなたのRenderのURLに書き換えてください
-        run: curl https://youtube-rn3k.onrender.com/
