@@ -4180,7 +4180,7 @@ function startBalanceGame(){
   balanceEngine.gravity.y = 0.8;
   balancePhysicsAccumulator = 0;
   balanceWorldBodies = [];
-  balanceFloorBody = Matter.Bodies.rectangle(COLS*TILE/2, ROWS*TILE + 10, COLS*TILE + 40, 20, { isStatic:true, friction:1.0, restitution:0, label:'bal_floor' });
+  balanceFloorBody = Matter.Bodies.rectangle(COLS*TILE/2, ROWS*TILE + 100, COLS*TILE + 40, 200, { isStatic:true, friction:1.0, restitution:0, label:'bal_floor' });
   // Left and right walls
   const balLeftWall  = Matter.Bodies.rectangle(-10, ROWS*TILE/2, 20, ROWS*TILE + 40, { isStatic:true, friction:0.5, restitution:0.05, label:'bal_wall_left' });
   const balRightWall = Matter.Bodies.rectangle(COLS*TILE + 10, ROWS*TILE/2, 20, ROWS*TILE + 40, { isStatic:true, friction:0.5, restitution:0.05, label:'bal_wall_right' });
@@ -4378,6 +4378,33 @@ function balanceCheckFallOut(){
       balanceWorldBodies.splice(i,1);
       balanceScore -= 100;
       balanceShowNotice('-100 OUT!', '#ff5252');
+    }
+  }
+}
+
+/* ---------- floor tunneling safety net ----------
+   Right after a partial line clear a body's mass/shape/centre of mass can
+   change abruptly (cells removed from underneath it), which can hand it a
+   large single-step velocity. Matter.js has no continuous collision
+   detection, so a fast-enough body can pass straight through the thin
+   static floor in one physics step before the solver ever "sees" the
+   overlap. As a hard guarantee against visually clipping through the
+   floor, clamp any body whose lowest point has gone past the board's
+   bottom edge back up to the surface and kill its downward velocity. */
+function balanceEnforceFloor(){
+  const floorY = ROWS * TILE;
+  for(const body of balanceWorldBodies){
+    let maxBottom = -Infinity;
+    for(const part of body.parts){
+      if(part === body) continue;
+      if(part.bounds.max.y > maxBottom) maxBottom = part.bounds.max.y;
+    }
+    if(maxBottom > floorY + 0.5){
+      const overlap = maxBottom - floorY;
+      Matter.Body.translate(body, { x: 0, y: -overlap });
+      if(body.velocity.y > 0) Matter.Body.setVelocity(body, { x: body.velocity.x, y: 0 });
+      Matter.Body.setAngularVelocity(body, body.angularVelocity * 0.5);
+      Matter.Sleeping.set(body, false);
     }
   }
 }
@@ -4590,6 +4617,7 @@ function balanceGameLoop(ts){
       balancePhysicsAccumulator -= BAL_FIXED_DT;
       steps++;
     }
+    balanceEnforceFloor();
     balanceRecomputeGrid();
 
     balanceCheckLineClear();
