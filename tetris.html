@@ -645,9 +645,8 @@ window.playClear = function(lines, b2b) {
 // Add a filename here (same folder as this HTML file) to add a new BGM track.
 // It will automatically appear in the selector as "BGM1", "BGM2", etc.
 const BGM_FILES = [
-    '303PM_230312.mp3',
-    'スローライフは続いてゆく.mp3',
-    'あ.mp3'
+    '303PM_230312.wav',
+    'スローライフは続いてゆく.mp3'
 ];
 
 let isBgmPlaying = false;
@@ -4158,7 +4157,7 @@ const BAL_HOVER_Y = TILE * 2.5;
 let balanceBoardGrid = null;
 let balanceScore = 0, balanceLines = 0, balanceTimeElapsed = 0;
 let balancePhysicsAccumulator = 0;
-const BAL_FIXED_DT = 1000/120;  // 120Hz physics for much better accuracy
+const BAL_FIXED_DT = 1000/240;  // 240Hz physics for much higher accuracy
 let balanceKeyState = {}, balanceRepeatTimers = {};
 
 function startBalanceGame(){
@@ -4172,9 +4171,9 @@ function startBalanceGame(){
   boardP1.style.cursor = 'pointer';
 
   balanceEngine = Matter.Engine.create({
-    positionIterations: 20,
-    velocityIterations: 16,
-    constraintIterations: 6,
+    positionIterations: 40,
+    velocityIterations: 32,
+    constraintIterations: 12,
     enableSleeping: true
   });
   // Reduce gravity slightly to make stacks more stable
@@ -4240,7 +4239,7 @@ function balanceBuildPieceBody(type, row, col, shape, color){
     frictionAir: 0.05,
     restitution: 0,
     density: 0.003,
-    slop: 0.005,
+    slop: 0.001,
     sleepThreshold: 60
   });
   body.balColor = color; body.balType = type;
@@ -4310,39 +4309,62 @@ function balanceRecomputeGrid(){
   }
 }
 
-/* ---------- horizontal line clear (unchanged rule: a full row clears) ---------- */
+/* ---------- horizontal line clear ----------
+   Only the individual cells (parts) that actually sit in a cleared row are
+   removed. Any other cells belonging to the same mino body are kept and the
+   body is rebuilt (via Matter.Body.setParts) from its surviving cells, so a
+   piece that only partially overlaps a cleared line keeps its remaining
+   blocks as a live physics body instead of the whole mino vanishing. */
 function balanceCheckLineClear(){
   const fullRows = [];
   for(let r=0;r<ROWS;r++){ if(balanceBoardGrid[r].every(v=>v)) fullRows.push(r); }
   if(!fullRows.length) return;
 
-  const toRemove = [];
+  const bodiesToRemove = [];   // bodies with no cells left at all -> drop entirely
+  const bodiesToRebuild = [];  // bodies that lose some (not all) cells
+
   for(const body of balanceWorldBodies){
-    // Remove any body that has at least one cell overlapping a cleared row.
-    // (Previously only bodies fully contained in cleared rows were removed,
-    //  which left cross-row pieces like L/J/S/Z partially stuck.)
-    let touches = false;
-    outer:
+    const remainingParts = [];
+    let removedAny = false;
     for(const part of body.parts){
-      if(part === body) continue;
+      if(part === body) continue; // skip the compound's own hull entry
       const rMin = Math.max(0, Math.floor(part.bounds.min.y / TILE));
       const rMax = Math.min(ROWS - 1, Math.floor((part.bounds.max.y - 1) / TILE));
+      let inCleared = false;
       for(let r = rMin; r <= rMax; r++){
-        if(fullRows.includes(r)){ touches = true; break outer; }
+        if(fullRows.includes(r)){ inCleared = true; break; }
       }
+      if(inCleared) removedAny = true;
+      else remainingParts.push(part);
     }
-    if(touches) toRemove.push(body);
+    if(!removedAny) continue; // untouched by the clear, leave as-is
+    if(remainingParts.length === 0) bodiesToRemove.push(body);
+    else bodiesToRebuild.push({ body, remainingParts });
   }
-  if(toRemove.length){
-    for(const body of toRemove){
-      Matter.World.remove(balanceEngine.world, body);
-      const idx = balanceWorldBodies.indexOf(body); if(idx>=0) balanceWorldBodies.splice(idx,1);
-    }
-    const n = Math.min(fullRows.length, 4);
-    balanceScore += [0,100,300,500,800][n];
-    balanceLines += fullRows.length;
-    balanceShowNotice(`${fullRows.length} LINE!`, '#6aa3ff');
+
+  if(!bodiesToRemove.length && !bodiesToRebuild.length) return;
+
+  for(const body of bodiesToRemove){
+    Matter.World.remove(balanceEngine.world, body);
+    const idx = balanceWorldBodies.indexOf(body); if(idx>=0) balanceWorldBodies.splice(idx,1);
   }
+
+  for(const { body, remainingParts } of bodiesToRebuild){
+    Matter.Body.setParts(body, remainingParts, true);
+    // Losing cells changes this body's mass/shape, so make sure it isn't
+    // left marked asleep with stale collision data.
+    Matter.Sleeping.set(body, false);
+  }
+
+  // Wake every remaining body: with cells gone, whatever was resting on top
+  // of them has lost its support and needs to actually drop, but Matter's
+  // sleep system won't do this on its own since no new collision occurred.
+  for(const body of balanceWorldBodies) Matter.Sleeping.set(body, false);
+
+  const n = Math.min(fullRows.length, 4);
+  balanceScore += [0,100,300,500,800][n];
+  balanceLines += fullRows.length;
+  balanceShowNotice(`${fullRows.length} LINE!`, '#6aa3ff');
 }
 
 /* ---------- pieces/stack falling outside the board ---------- */
@@ -4563,7 +4585,7 @@ function balanceGameLoop(ts){
     // far more calmly instead of shaking.
     balancePhysicsAccumulator += Math.min(dt, 100);
     let steps = 0;
-    while(balancePhysicsAccumulator >= BAL_FIXED_DT && steps < 8){
+    while(balancePhysicsAccumulator >= BAL_FIXED_DT && steps < 16){
       Matter.Engine.update(balanceEngine, BAL_FIXED_DT);
       balancePhysicsAccumulator -= BAL_FIXED_DT;
       steps++;
