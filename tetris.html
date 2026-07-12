@@ -1548,8 +1548,8 @@ window.addEventListener('keyup', (e)=>{
 
 function handleActionKey(player, act, allowRepeat=false){
   if(!player || replayPlaying || player.actionLock) return;
-  if(act === 'rotCW'){ if(applyRotation(player, 1)) playRotate(); recordAction(player.id, 'rotateCW'); startAutoRepeat(player, 'rotCW', {immediate:false}); }
-  else if(act === 'rotCCW'){ if(applyRotation(player, -1)) playRotate(); recordAction(player.id, 'rotateCCW'); startAutoRepeat(player, 'rotCCW', {immediate:false}); }
+  if(act === 'rotCW'){ if(applyRotation(player, 1)) playRotate(); recordAction(player.id, 'rotateCW'); if(allowRepeat) startAutoRepeat(player, 'rotCW', {immediate:false}); }
+  else if(act === 'rotCCW'){ if(applyRotation(player, -1)) playRotate(); recordAction(player.id, 'rotateCCW'); if(allowRepeat) startAutoRepeat(player, 'rotCCW', {immediate:false}); }
   else if(act === 'hard'){ 
     while(!collision(player.board, player.current.row+1, player.current.col, player.current.shape)) { player.current.row++; }
     recordAction(player.id,'hardDrop'); triggerShake(8,200, player.id==='P1'?'cardP1':'cardP2'); playHardDrop();
@@ -1565,7 +1565,7 @@ function handleActionKey(player, act, allowRepeat=false){
     if(act === 'left'){ const ok = move(player, -1, 0); if(ok) playMove(); recordAction(player.id,'moveLeft'); if(!ok) triggerShake(4,140, player.id==='P1'?'cardP1':'cardP2'); } 
     if(act === 'right'){ const ok = move(player, 1, 0); if(ok) playMove(); recordAction(player.id,'moveRight'); if(!ok) triggerShake(4,140, player.id==='P1'?'cardP1':'cardP2'); } 
     if(act === 'soft') { const ok = move(player, 0, 1); if(ok) playMove(); recordAction(player.id,'softDrop'); }
-    startAutoRepeat(player, act, {immediate:false}); 
+    if(allowRepeat) startAutoRepeat(player, act, {immediate:false}); 
   }
 }
 
