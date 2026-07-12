@@ -4661,41 +4661,65 @@ function balanceGameLoop(ts){
 <div id="gesturePanel" style="
   position:fixed; bottom:100px; right:16px; z-index:2000;
   background:rgba(7,16,40,0.94); border:1px solid rgba(123,211,137,0.3);
-  border-radius:14px; padding:12px 14px; width:220px;
+  border-radius:14px; padding:0; width:240px;
   box-shadow:0 8px 32px rgba(0,0,0,0.7); display:none; font-size:12px;
+  user-select:none;
 ">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-    <span style="font-weight:900;color:#7bd389;font-size:14px">✋ ジェスチャー操作</span>
-    <button id="gestureCloseBtn" style="background:none;border:none;color:rgba(255,255,255,0.5);cursor:pointer;font-size:16px;padding:0 4px">✕</button>
-  </div>
-
-  <!-- カメラプレビュー -->
-  <div style="position:relative;background:#000;border-radius:8px;overflow:hidden;margin-bottom:8px">
-    <video id="gestureVideo" autoplay playsinline muted style="width:220px;height:165px;display:block;transform:scaleX(-1);object-fit:cover"></video>
-    <canvas id="gestureCanvas" style="position:absolute;top:0;left:0;width:220px;height:165px;transform:scaleX(-1)"></canvas>
-    <div id="gestureStatus" style="position:absolute;bottom:4px;left:6px;right:6px;font-size:11px;font-weight:700;color:#7bd389;text-shadow:0 1px 4px #000;background:rgba(0,0,0,0.5);border-radius:4px;padding:2px 5px;"></div>
-  </div>
-
-  <!-- 現在のジェスチャーアクション表示 -->
-  <div id="gestureAction" style="text-align:center;font-weight:900;font-size:16px;color:#fff;min-height:22px;margin-bottom:8px;letter-spacing:1px;"></div>
-
-  <!-- 4本指の傾き可視化バー -->
-  <div id="tiltBar" style="display:none;margin-bottom:8px">
-    <div style="font-size:10px;color:rgba(255,255,255,0.5);margin-bottom:3px;text-align:center">手の傾き（回転方向）</div>
-    <div style="position:relative;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
-      <div id="tiltIndicator" style="position:absolute;top:0;height:100%;width:6px;background:#ffeb3b;border-radius:3px;transition:left 0.08s;left:50%"></div>
+  <!-- ドラッグハンドル（タイトルバー） -->
+  <div id="gestureDragHandle" style="
+    display:flex;justify-content:space-between;align-items:center;
+    padding:9px 12px; cursor:grab; border-radius:14px 14px 0 0;
+    background:rgba(123,211,137,0.08); border-bottom:1px solid rgba(123,211,137,0.15);
+  ">
+    <span style="font-weight:900;color:#7bd389;font-size:13px;pointer-events:none">✋ ジェスチャー操作</span>
+    <div style="display:flex;gap:6px;align-items:center">
+      <!-- ガイド折りたたみ -->
+      <button id="gestureGuideToggle" title="操作ガイド" style="background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:13px;padding:0 2px;line-height:1">？</button>
+      <button id="gestureCloseBtn" style="background:none;border:none;color:rgba(255,255,255,0.45);cursor:pointer;font-size:15px;padding:0 2px;line-height:1">✕</button>
     </div>
-    <div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.4);margin-top:2px"><span>↺左回転</span><span>右回転↻</span></div>
   </div>
 
-  <!-- 操作ガイド -->
-  <div style="color:rgba(255,255,255,0.5);line-height:1.75;font-size:10px;">
-    ☝️ 人差し指 1本　→ 左移動<br>
-    🤙 小指 1本　　　→ 右移動<br>
-    ✌️ 2本（人中）　 → ソフトドロップ<br>
-    🤟 3本　　　　　 → ハードドロップ<br>
-    🖐️ 4本 + 傾け　　→ 回転<br>
-    ✊ グー　　　　　 → ホールド
+  <div style="padding:10px 12px 12px">
+    <!-- カメラプレビュー（リサイズ対応） -->
+    <div id="gesturePreviewWrap" style="position:relative;background:#000;border-radius:8px;overflow:hidden;margin-bottom:8px">
+      <video id="gestureVideo" autoplay playsinline muted style="width:100%;display:block;transform:scaleX(-1);object-fit:cover"></video>
+      <canvas id="gestureCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1)"></canvas>
+      <div id="gestureStatus" style="position:absolute;bottom:4px;left:6px;right:6px;font-size:11px;font-weight:700;color:#7bd389;text-shadow:0 1px 4px #000;background:rgba(0,0,0,0.55);border-radius:4px;padding:2px 6px;"></div>
+    </div>
+
+    <!-- アクション表示 -->
+    <div id="gestureAction" style="text-align:center;font-weight:900;font-size:15px;color:#fff;min-height:20px;margin-bottom:7px;letter-spacing:1px;"></div>
+
+    <!-- 傾きバー -->
+    <div id="tiltBar" style="display:none;margin-bottom:7px">
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:3px;text-align:center">手の傾き（回転方向）</div>
+      <div style="position:relative;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
+        <div id="tiltIndicator" style="position:absolute;top:0;height:100%;width:6px;background:#ffeb3b;border-radius:3px;transition:left 0.08s;left:50%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.35);margin-top:2px"><span>↺左回転</span><span>右回転↻</span></div>
+    </div>
+
+    <!-- 操作ガイド（折りたたみ可） -->
+    <div id="gestureGuide" style="color:rgba(255,255,255,0.48);line-height:1.8;font-size:10px;">
+      ☝️ 人差し指 1本　→ 左移動<br>
+      🤙 小指 1本　　　→ 右移動<br>
+      ✌️ 2本（人中）　 → ソフトドロップ<br>
+      🤟 3本　　　　　 → ハードドロップ<br>
+      ✊ グー + 手首回転 → 回した方向に回転<br>
+      🤜 グー（手の甲）→ ホールド
+    </div>
+  </div>
+
+  <!-- リサイズハンドル（右下） -->
+  <div id="gestureResizeHandle" style="
+    position:absolute; bottom:0; right:0;
+    width:18px; height:18px; cursor:nwse-resize;
+    display:flex; align-items:flex-end; justify-content:flex-end;
+    padding:3px; box-sizing:border-box; border-radius:0 0 14px 0;
+  ">
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+      <path d="M9 1L1 9M9 5L5 9M9 9" stroke="rgba(123,211,137,0.5)" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
   </div>
 </div>
 
@@ -4715,30 +4739,26 @@ function balanceGameLoop(ts){
 (function(){
 
   /* ---- チューニング定数 ---- */
-  const COOLDOWN        = 380;   // ms: 同一ジェスチャーの再トリガー抑制
-  const STABLE_FRAMES   = 4;     // ジェスチャーが連続N回一致で確定
-  const FIST_HOLD_MS    = 800;   // グーを保持するとホールドが発火するまでの時間(ms)
-  const TILT_THRESHOLD  = 0.08;  // 4本指モードで回転を発火する傾き閾値
+  const COOLDOWN       = 380;  // ms: 同一アクションの再トリガー抑制
+  const STABLE_FRAMES  = 4;    // 同じジェスチャーがN連続で確定
+  // グー回転: 手首ロール角の変化量閾値（ラジアン）
+  const ROT_THRESH     = 0.30; // これ以上変化したら回転発火
 
   /* ---- 状態 ---- */
-  let gestureActive  = false;
-  let handsModel     = null;
+  let gestureActive = false;
+  let handsModel    = null;
   let videoEl, canvasEl, canvasCtx;
 
-  // クールダウン管理（アクション名 → 最後に発火した時刻）
-  const lastFiredAt  = {};
+  const lastFiredAt = {};
 
-  // ジェスチャー安定化バッファ
-  let stableGesture  = null;
-  let stableCount    = 0;
-  let prevGesture    = null;
+  // ジェスチャー安定化
+  let stableCount  = 0;
+  let prevGesture  = null;
 
-  // グー(fist)の保持タイマー
-  let fistStartTime  = null;
-  let fistFired      = false;
-
-  // 4本指の傾き履歴（スムージング用）
-  let tiltHistory    = [];
+  // グー状態のロール角トラッキング
+  let fistRollBaseline  = null; // グーになった瞬間のロール角を記録
+  let fistRollHistory   = [];   // スムージング用
+  let fistActionFired   = false;// 一回のグーで1アクションのみ
 
   /* ---- DOM ---- */
   const panel     = document.getElementById('gesturePanel');
@@ -4752,10 +4772,10 @@ function balanceGameLoop(ts){
   /* ================================================
      ユーティリティ
      ================================================ */
-  function canFire(actionName) {
+  function canFire(name) {
     const t = performance.now();
-    if (lastFiredAt[actionName] && t - lastFiredAt[actionName] < COOLDOWN) return false;
-    lastFiredAt[actionName] = t;
+    if (lastFiredAt[name] && t - lastFiredAt[name] < COOLDOWN) return false;
+    lastFiredAt[name] = t;
     return true;
   }
 
@@ -4775,21 +4795,53 @@ function balanceGameLoop(ts){
   }
 
   /* ================================================
-     指の伸び判定（カメラ映像はミラー反転済みなので
-     landmark の x 座標は実際の左右と一致）
+     指の伸び判定
+     tip.y < pip.y → 伸びている（Y軸は下向き正）
      ================================================ */
-  // tip.y < pip.y なら伸びている（Y軸は下向き正）
   function isUp(lm, tip, pip) { return lm[tip].y < lm[pip].y; }
 
-  /* ---- 親指の判定（方向が異なるので別処理） ---- */
-  // 手の向きに関わらず親指先端が手首より外側にあるか
-  function isThumbUp(lm) {
-    // 手首(0)に対して親指先端(4)のX距離 > 人差し指付け根(5)のX距離
-    const wristX   = lm[0].x;
-    const thumbTip = lm[4].x;
-    const indexMCP = lm[5].x;
-    // 親指はY軸ではなく横方向なので、MCP(2)より先端(4)が外に出ているかで判定
-    return Math.abs(thumbTip - wristX) > Math.abs(lm[2].x - wristX);
+  /* ================================================
+     手の向き判定（手のひら vs 手の甲がカメラを向いているか）
+     
+     MediaPipe は正規化済み座標を返す。
+     右手の場合: 手のひら向き → 親指が画面右側（x大）
+                 手の甲向き  → 親指が画面左側（x小）
+     左手の場合: 逆になる。
+     
+     handedness を使って判定する。
+     "Right" = 実際の右手（ミラー反転前）。
+     カメラ映像は scaleX(-1) してあるので、
+     画面上では "Right" の手が左に見える。
+     
+     手のひら向きの判定:
+       親指先端(4).x  vs  小指MCP(17).x
+       Right hand, palm facing camera: thumb(4).x > pinky_mcp(17).x  → raw座標で
+       (rawは反転前なので画面左＝x大)
+       
+     簡易版: 人差し指MCP(5) と 小指MCP(17) の外積のZ成分で向きを判定
+     cross.z > 0  → 手のひらがカメラ向き（正面）
+     cross.z < 0  → 手の甲がカメラ向き（裏）
+     ================================================ */
+  function isPalmFacing(lm) {
+    // 手首(0)→人差し指MCP(5) ベクトル A
+    const ax = lm[5].x - lm[0].x, ay = lm[5].y - lm[0].y;
+    // 手首(0)→小指MCP(17) ベクトル B
+    const bx = lm[17].x - lm[0].x, by = lm[17].y - lm[0].y;
+    // 外積Z成分: ax*by - ay*bx
+    // 手のひら向き（右手）→ 正の値
+    // 手の甲向き（右手）  → 負の値
+    // ミラー反転しているので符号が逆になる → < 0 で手のひら向き
+    return (ax * by - ay * bx) < 0;
+  }
+
+  /* ================================================
+     グーの「手首ロール角」計算
+     手首(0) → 中指MCP(9) ベクトルのX/Y から角度を求める
+     ================================================ */
+  function computeFistRoll(lm) {
+    const dx = lm[9].x - lm[0].x;
+    const dy = lm[9].y - lm[0].y;
+    return Math.atan2(dy, dx); // ラジアン
   }
 
   /* ================================================
@@ -4801,60 +4853,26 @@ function balanceGameLoop(ts){
     const ring   = isUp(lm, 16, 14);
     const pinky  = isUp(lm, 20, 18);
 
-    const upCount = [index, middle, ring, pinky].filter(Boolean).length;
-
-    /* グー: 4本全て折れている */
     if (!index && !middle && !ring && !pinky) return 'fist';
-
-    /* 4本全て立ってる */
-    if (index && middle && ring && pinky) return 'four';
-
-    /* 人差し指だけ: ☝️ → 左移動 */
-    if (index && !middle && !ring && !pinky) return 'index';
-
-    /* 小指だけ: 🤙 → 右移動 */
-    if (!index && !middle && !ring && pinky) return 'pinky';
-
-    /* 2本（人差し＋中指）: ✌️ → ソフトドロップ */
-    if (index && middle && !ring && !pinky) return 'two';
-
-    /* 3本（人差し＋中指＋薬指）: 🤟 → ハードドロップ */
-    if (index && middle && ring && !pinky) return 'three';
-
-    /* 3本（人差し＋中指＋小指）パターンも3本として扱う */
-    if (index && middle && !ring && pinky) return 'three';
-
+    if (index && !middle && !ring && !pinky)  return 'index';
+    if (!index && !middle && !ring && pinky)  return 'pinky';
+    if (index && middle && !ring && !pinky)   return 'two';
+    if (index && middle && ring && !pinky)    return 'three';
+    if (index && middle && !ring && pinky)    return 'three';
+    // 4本は 'other' 扱い（何もしない）
     return 'other';
   }
 
   /* ================================================
-     4本指モードの傾き計算
-     手の「傾き」= 中指先端(12) と 手首(0) を結ぶ角度のX成分
-     画面でミラー反転されているので符号を反転して使う
+     ロール角ビジュアライザ更新
      ================================================ */
-  function computeTilt(lm) {
-    // 中指先端(12) - 手首(0) のベクトル
-    const dx = lm[12].x - lm[0].x;
-    const dy = lm[12].y - lm[0].y;
-    // 真上(dy<0)に対するX成分の割合（-1 = 完全左傾き, +1 = 完全右傾き）
-    // 注意: MediaPipeの x は鏡映像の x → 実際の左右とミラー反転
-    // カメラプレビューは transform:scaleX(-1) で戻してあるが、
-    // lmの座標はraw（反転前）なので、実際の左方向はx大きい方
-    const len = Math.sqrt(dx*dx + dy*dy) || 1;
-    // 鏡反転補正: rawのx増加 = 画面上の左 → 実際の自分の右
-    // ユーザーが右に手を傾ける → raw dx が負 → -(dx/len) が正 → 右回転
-    return -(dx / len);  // 右傾き = 正 → 右回転CW
-  }
-
-  /* ================================================
-     更新した傾きバーの描画
-     ================================================ */
-  function updateTiltBar(tilt, show) {
+  function updateRollBar(delta, show) {
     if (!tiltBar || !tiltInd) return;
     tiltBar.style.display = show ? 'block' : 'none';
     if (show) {
-      // tilt: -1(左) ~ +1(右) → 0%~100%
-      const pct = (tilt * 0.5 + 0.5) * 100;
+      // delta: -π～π → 0%～100%（中央=0）
+      const norm = Math.max(-1, Math.min(1, delta / (Math.PI * 0.5)));
+      const pct  = (norm * 0.5 + 0.5) * 100;
       tiltInd.style.left = Math.max(2, Math.min(92, pct)) + '%';
     }
   }
@@ -4865,82 +4883,113 @@ function balanceGameLoop(ts){
   function onResults(results) {
     if (!canvasEl || !canvasCtx) return;
 
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-    if (results.image) {
-      canvasCtx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
+    // canvas サイズ同期
+    const pw = canvasEl.parentElement ? canvasEl.parentElement.offsetWidth  : canvasEl.width;
+    const ph = canvasEl.parentElement ? canvasEl.parentElement.offsetHeight : canvasEl.height;
+    if (canvasEl.width !== pw || canvasEl.height !== ph) {
+      canvasEl.width = pw; canvasEl.height = ph;
     }
 
-    /* 手が見えない */
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    if (results.image) canvasCtx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
+
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-      stableGesture = null; stableCount = 0; prevGesture = null;
-      fistStartTime = null; fistFired = false;
-      tiltHistory   = [];
+      stableCount = 0; prevGesture = null;
+      fistRollBaseline = null; fistRollHistory = []; fistActionFired = false;
       statusEl.textContent = '手が見えません 👋';
-      updateTiltBar(0, false);
+      updateRollBar(0, false);
       canvasCtx.restore();
       return;
     }
 
     const lm = results.multiHandLandmarks[0];
 
-    /* スケルトン描画 */
     if (typeof drawConnectors !== 'undefined') {
       drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, { color: 'rgba(123,211,137,0.75)', lineWidth: 1.5 });
-      drawLandmarks(canvasCtx,   lm, { color: '#6aa3ff', lineWidth: 1, radius: 2.5 });
+      drawLandmarks(canvasCtx, lm, { color: '#6aa3ff', lineWidth: 1, radius: 2.5 });
     }
     canvasCtx.restore();
 
     /* ---- ジェスチャー安定化 ---- */
     const raw = classifyGesture(lm);
-
-    if (raw === prevGesture) {
-      stableCount++;
-    } else {
-      stableCount  = 1;
-      prevGesture  = raw;
-    }
-
-    // STABLE_FRAMES 連続で同じジェスチャーが来て初めて確定
-    if (stableCount < STABLE_FRAMES) {
-      statusEl.textContent = `認識中... (${raw})`;
-      return;
-    }
+    if (raw === prevGesture) { stableCount++; } else { stableCount = 1; prevGesture = raw; }
+    if (stableCount < STABLE_FRAMES) { statusEl.textContent = `認識中... (${raw})`; return; }
 
     const gesture = raw;
-    stableGesture = gesture;
 
     /* ==== ジェスチャー別処理 ==== */
 
-    /* ✊ グー → ホールド（保持開始してから FIST_HOLD_MS ms で発火） */
+    /* ✊ グー */
     if (gesture === 'fist') {
-      if (fistStartTime === null) {
-        fistStartTime = performance.now();
-        fistFired = false;
-        statusEl.textContent = '✊ グー… ホールド準備中';
+      const palmFacing = isPalmFacing(lm);
+      const roll = computeFistRoll(lm);
+
+      // スムージング
+      fistRollHistory.push(roll);
+      if (fistRollHistory.length > 4) fistRollHistory.shift();
+      const smoothRoll = fistRollHistory.reduce((a, b) => a + b, 0) / fistRollHistory.length;
+
+      // グーになった瞬間にベースラインを記録
+      if (fistRollBaseline === null) {
+        fistRollBaseline = smoothRoll;
+        fistActionFired  = false;
       }
-      const elapsed = performance.now() - fistStartTime;
-      const pct = Math.min(100, (elapsed / FIST_HOLD_MS * 100) | 0);
-      statusEl.textContent = `✊ グー ${pct}%`;
-      if (!fistFired && elapsed >= FIST_HOLD_MS) {
-        fistFired = true;
-        if (canFire('hold')) {
+
+      /* 手の甲向きグー → ホールド */
+      if (!palmFacing) {
+        statusEl.textContent = '✊ 手の甲グー → ホールド';
+        updateRollBar(0, false);
+        if (!fistActionFired && canFire('hold')) {
+          fistActionFired = true;
           fireGameAction('hold');
           showAction('✊ ホールド', '#9b59b6');
-          statusEl.textContent = '✊ ホールド！';
         }
+        return;
       }
-      updateTiltBar(0, false);
+
+      /* 手のひら向きグー → 回転量で回転方向を判定 */
+      // 角度差（-π ～ +π に正規化）
+      let delta = smoothRoll - fistRollBaseline;
+      if (delta >  Math.PI) delta -= 2 * Math.PI;
+      if (delta < -Math.PI) delta += 2 * Math.PI;
+
+      updateRollBar(delta, true);
+
+      if (!fistActionFired) {
+        if (delta > ROT_THRESH) {
+          // 時計回りに手首を回した → 右回転
+          fistActionFired = true;
+          if (canFire('rotCW')) {
+            fireGameAction('rotCW');
+            showAction('✊ 右回転 ↻', '#ffeb3b');
+          }
+          statusEl.textContent = `✊ 手首CW → 右回転 (Δ${delta.toFixed(2)})`;
+        } else if (delta < -ROT_THRESH) {
+          // 反時計回りに手首を回した → 左回転
+          fistActionFired = true;
+          if (canFire('rotCCW')) {
+            fireGameAction('rotCCW');
+            showAction('✊ 左回転 ↺', '#ffeb3b');
+          }
+          statusEl.textContent = `✊ 手首CCW → 左回転 (Δ${delta.toFixed(2)})`;
+        } else {
+          statusEl.textContent = `✊ グー 手首待機 (Δ${delta.toFixed(2)})`;
+        }
+      } else {
+        statusEl.textContent = `✊ グー 回転済み`;
+      }
       return;
+
     } else {
-      fistStartTime = null;
-      fistFired = false;
+      // グー以外になったらリセット
+      fistRollBaseline = null; fistRollHistory = []; fistActionFired = false;
+      updateRollBar(0, false);
     }
 
     /* ☝️ 人差し指1本 → 左移動 */
     if (gesture === 'index') {
       statusEl.textContent = '☝️ 人差し指 → 左移動';
-      updateTiltBar(0, false);
       if (canFire('left')) { fireGameAction('left'); showAction('☝️ 左移動', '#6aa3ff'); }
       return;
     }
@@ -4948,15 +4997,13 @@ function balanceGameLoop(ts){
     /* 🤙 小指1本 → 右移動 */
     if (gesture === 'pinky') {
       statusEl.textContent = '🤙 小指 → 右移動';
-      updateTiltBar(0, false);
       if (canFire('right')) { fireGameAction('right'); showAction('🤙 右移動', '#6aa3ff'); }
       return;
     }
 
-    /* ✌️ 2本（人差し+中指）→ ソフトドロップ */
+    /* ✌️ 2本 → ソフトドロップ */
     if (gesture === 'two') {
       statusEl.textContent = '✌️ 2本 → ソフトドロップ';
-      updateTiltBar(0, false);
       if (canFire('soft')) { fireGameAction('soft'); showAction('✌️ ソフトドロップ', '#7bd389'); }
       return;
     }
@@ -4964,40 +5011,12 @@ function balanceGameLoop(ts){
     /* 🤟 3本 → ハードドロップ */
     if (gesture === 'three') {
       statusEl.textContent = '🤟 3本 → ハードドロップ！';
-      updateTiltBar(0, false);
       if (canFire('hard')) { fireGameAction('hard'); showAction('🤟 ハードドロップ！', '#ff4444'); }
       return;
     }
 
-    /* 🖐️ 4本 → 傾きで回転 */
-    if (gesture === 'four') {
-      const tilt = computeTilt(lm);
-
-      // スムージング
-      tiltHistory.push(tilt);
-      if (tiltHistory.length > 5) tiltHistory.shift();
-      const smoothTilt = tiltHistory.reduce((a,b) => a+b, 0) / tiltHistory.length;
-
-      updateTiltBar(smoothTilt, true);
-      statusEl.textContent = `🖐️ 4本 傾き: ${smoothTilt > 0 ? '→右' : '←左'} (${Math.abs(smoothTilt).toFixed(2)})`;
-
-      if (smoothTilt > TILT_THRESHOLD) {
-        if (canFire('rotCW')) {
-          fireGameAction('rotCW');
-          showAction('🖐️ 右回転 ↻', '#ffeb3b');
-        }
-      } else if (smoothTilt < -TILT_THRESHOLD) {
-        if (canFire('rotCCW')) {
-          fireGameAction('rotCCW');
-          showAction('🖐️ 左回転 ↺', '#ffeb3b');
-        }
-      }
-      return;
-    }
-
-    /* other */
+    /* 4本 or other → 何もしない */
     statusEl.textContent = '✋ 待機中...';
-    updateTiltBar(0, false);
   }
 
   /* ================================================
@@ -5010,8 +5029,13 @@ function balanceGameLoop(ts){
 
     videoEl  = document.getElementById('gestureVideo');
     canvasEl = document.getElementById('gestureCanvas');
-    canvasEl.width  = 220;
-    canvasEl.height = 165;
+    const previewWrap = document.getElementById('gesturePreviewWrap');
+    // 初期プレビュー高さ = 幅の 75%（4:3）
+    const initW = panel.offsetWidth - 24;
+    const initH = Math.round(initW * 0.75);
+    if (previewWrap) previewWrap.style.height = initH + 'px';
+    canvasEl.width  = initW;
+    canvasEl.height = initH;
     canvasCtx = canvasEl.getContext('2d');
 
     await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
@@ -5071,6 +5095,108 @@ function balanceGameLoop(ts){
 
   toggleBtn.addEventListener('click', startGesture);
   closeBtn.addEventListener('click', stopGesture);
+
+  /* ================================================
+     ドラッグ移動
+     ================================================ */
+  (function() {
+    const handle = document.getElementById('gestureDragHandle');
+    let dragging = false, ox = 0, oy = 0;
+
+    handle.addEventListener('mousedown', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      ox = e.clientX - r.left;
+      oy = e.clientY - r.top;
+      handle.style.cursor = 'grabbing';
+      e.preventDefault();
+    });
+    handle.addEventListener('touchstart', e => {
+      if (e.target.tagName === 'BUTTON') return;
+      dragging = true;
+      const r = panel.getBoundingClientRect();
+      ox = e.touches[0].clientX - r.left;
+      oy = e.touches[0].clientY - r.top;
+      e.preventDefault();
+    }, {passive: false});
+
+    function onMove(cx, cy) {
+      if (!dragging) return;
+      const x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  cx - ox));
+      const y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, cy - oy));
+      panel.style.right  = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left   = x + 'px';
+      panel.style.top    = y + 'px';
+    }
+    function onEnd() { dragging = false; handle.style.cursor = 'grab'; }
+
+    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
+    window.addEventListener('mouseup',   onEnd);
+    window.addEventListener('touchmove', e => { if(dragging) { onMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } }, {passive:false});
+    window.addEventListener('touchend',  onEnd);
+  })();
+
+  /* ================================================
+     リサイズ（右下ハンドル）
+     ================================================ */
+  (function() {
+    const resizeHandle = document.getElementById('gestureResizeHandle');
+    const preview      = document.getElementById('gesturePreviewWrap');
+    let resizing = false, startX = 0, startW = 0, startPH = 0;
+
+    const MIN_W = 160, MAX_W = 480;
+
+    resizeHandle.addEventListener('mousedown', e => {
+      resizing = true;
+      startX = e.clientX;
+      startW = panel.offsetWidth;
+      startPH = preview ? preview.offsetHeight : 160;
+      e.preventDefault();
+    });
+    resizeHandle.addEventListener('touchstart', e => {
+      resizing = true;
+      startX = e.touches[0].clientX;
+      startW = panel.offsetWidth;
+      startPH = preview ? preview.offsetHeight : 160;
+      e.preventDefault();
+    }, {passive:false});
+
+    function onMove(cx) {
+      if (!resizing) return;
+      const dw = cx - startX;
+      const nw = Math.max(MIN_W, Math.min(MAX_W, startW + dw));
+      panel.style.width = nw + 'px';
+      // プレビューは 4:3 比率でリサイズ
+      if (preview) {
+        const ph = Math.round((nw - 24) * 0.75);
+        preview.style.height = ph + 'px';
+        const cv = document.getElementById('gestureCanvas');
+        if (cv) { cv.width = nw - 24; cv.height = ph; }
+      }
+    }
+    function onEnd() { resizing = false; }
+
+    window.addEventListener('mousemove', e => onMove(e.clientX));
+    window.addEventListener('mouseup',   onEnd);
+    window.addEventListener('touchmove', e => { if(resizing){ onMove(e.touches[0].clientX); e.preventDefault(); } }, {passive:false});
+    window.addEventListener('touchend',  onEnd);
+  })();
+
+  /* ================================================
+     操作ガイド 折りたたみ
+     ================================================ */
+  (function() {
+    const guideToggle = document.getElementById('gestureGuideToggle');
+    const guide       = document.getElementById('gestureGuide');
+    let open = true;
+    guideToggle.addEventListener('click', () => {
+      open = !open;
+      guide.style.display = open ? '' : 'none';
+      guideToggle.style.color = open ? 'rgba(255,255,255,0.4)' : '#7bd389';
+    });
+  })();
 
 })();
 </script>
