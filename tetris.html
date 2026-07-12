@@ -4940,44 +4940,32 @@ function balanceGameLoop(ts){
     /* ☝️ 人差し指1本 → 左移動 */
     if (gesture === 'index') {
       statusEl.textContent = '☝️ 人差し指 → 左移動';
-      if (canFire('left')) {
-        fireGameAction('left');
-        showAction('☝️ 左移動', '#6aa3ff');
-      }
       updateTiltBar(0, false);
+      if (canFire('left')) { fireGameAction('left'); showAction('☝️ 左移動', '#6aa3ff'); }
       return;
     }
 
     /* 🤙 小指1本 → 右移動 */
     if (gesture === 'pinky') {
       statusEl.textContent = '🤙 小指 → 右移動';
-      if (canFire('right')) {
-        fireGameAction('right');
-        showAction('🤙 右移動', '#6aa3ff');
-      }
       updateTiltBar(0, false);
+      if (canFire('right')) { fireGameAction('right'); showAction('🤙 右移動', '#6aa3ff'); }
       return;
     }
 
     /* ✌️ 2本（人差し+中指）→ ソフトドロップ */
     if (gesture === 'two') {
       statusEl.textContent = '✌️ 2本 → ソフトドロップ';
-      if (canFire('soft')) {
-        fireGameAction('soft');
-        showAction('✌️ ソフトドロップ', '#7bd389');
-      }
       updateTiltBar(0, false);
+      if (canFire('soft')) { fireGameAction('soft'); showAction('✌️ ソフトドロップ', '#7bd389'); }
       return;
     }
 
     /* 🤟 3本 → ハードドロップ */
     if (gesture === 'three') {
       statusEl.textContent = '🤟 3本 → ハードドロップ！';
-      if (canFire('hard')) {
-        fireGameAction('hard');
-        showAction('🤟 ハードドロップ！', '#ff4444');
-      }
       updateTiltBar(0, false);
+      if (canFire('hard')) { fireGameAction('hard'); showAction('🤟 ハードドロップ！', '#ff4444'); }
       return;
     }
 
