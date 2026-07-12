@@ -4349,16 +4349,32 @@ function balanceCheckLineClear(){
     const idx = balanceWorldBodies.indexOf(body); if(idx>=0) balanceWorldBodies.splice(idx,1);
   }
 
+  // setParts() は既存パーツの parent/collisionFilter を壊して当たり判定が消えるため、
+  // 残ったセルから新しいボディを丸ごと作り直す方式に変更する。
   for(const { body, remainingParts } of bodiesToRebuild){
-    Matter.Body.setParts(body, remainingParts, true);
-    // Losing cells changes this body's mass/shape, so make sure it isn't
-    // left marked asleep with stale collision data.
-    Matter.Sleeping.set(body, false);
+    const newParts = remainingParts.map(part => {
+      const cx = (part.bounds.min.x + part.bounds.max.x) / 2;
+      const cy = (part.bounds.min.y + part.bounds.max.y) / 2;
+      return Matter.Bodies.rectangle(cx, cy, TILE-2, TILE-2, { chamfer: { radius: 2 } });
+    });
+    const newBody = Matter.Body.create({
+      parts: newParts,
+      friction: 0.9, frictionStatic: 1.5, frictionAir: 0.05,
+      restitution: 0, density: 0.003, slop: 0.001, sleepThreshold: 60
+    });
+    newBody.balColor = body.balColor;
+    newBody.balType  = body.balType;
+    newBody.balReleased = true;
+    Matter.Body.setVelocity(newBody, { x: body.velocity.x, y: body.velocity.y });
+    Matter.Body.setAngularVelocity(newBody, body.angularVelocity);
+    Matter.World.remove(balanceEngine.world, body);
+    const idx = balanceWorldBodies.indexOf(body);
+    if(idx >= 0) balanceWorldBodies.splice(idx, 1);
+    Matter.World.add(balanceEngine.world, newBody);
+    balanceWorldBodies.push(newBody);
   }
 
-  // Wake every remaining body: with cells gone, whatever was resting on top
-  // of them has lost its support and needs to actually drop, but Matter's
-  // sleep system won't do this on its own since no new collision occurred.
+  // ライン消去で支えを失ったボディを起こして落下させる
   for(const body of balanceWorldBodies) Matter.Sleeping.set(body, false);
 
   const n = Math.min(fullRows.length, 4);
@@ -4629,5 +4645,320 @@ function balanceGameLoop(ts){
 }
 
 </script>
+
+<!-- =====================================================
+     手ジェスチャー制御システム (MediaPipe Hands)
+     ===================================================== -->
+
+<!-- ジェスチャーUIパネル -->
+<div id="gesturePanel" style="
+  position:fixed; bottom:100px; right:16px; z-index:2000;
+  background:rgba(7,16,40,0.92); border:1px solid rgba(123,211,137,0.3);
+  border-radius:14px; padding:12px 14px; min-width:200px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.6); display:none; font-size:12px;
+">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <span style="font-weight:900;color:#7bd389;font-size:14px">✋ ジェスチャー操作</span>
+    <button id="gestureCloseBtn" style="background:none;border:none;color:rgba(255,255,255,0.5);cursor:pointer;font-size:16px;padding:0 4px">✕</button>
+  </div>
+  <div style="position:relative;background:#000;border-radius:8px;overflow:hidden;margin-bottom:8px">
+    <video id="gestureVideo" autoplay playsinline muted style="width:200px;height:150px;display:block;transform:scaleX(-1);object-fit:cover"></video>
+    <canvas id="gestureCanvas" style="position:absolute;top:0;left:0;width:200px;height:150px;transform:scaleX(-1)"></canvas>
+    <div id="gestureStatus" style="position:absolute;top:4px;left:6px;font-size:10px;font-weight:700;color:#7bd389;text-shadow:0 1px 4px #000"></div>
+  </div>
+  <div id="gestureAction" style="text-align:center;font-weight:900;font-size:15px;color:#fff;min-height:20px;margin-bottom:6px"></div>
+  <div style="color:rgba(255,255,255,0.55);line-height:1.6;font-size:10px">
+    👈👉 左右移動<br>
+    👇 スワイプ下 → ソフトドロップ<br>
+    ⚡ 素早く下振り → ハードドロップ<br>
+    ✊ グー → 右回転（長押し→左回転）<br>
+    ✌️ ピース → ホールド
+  </div>
+</div>
+
+<!-- ジェスチャー起動ボタン -->
+<button id="gestureToggleBtn" style="
+  position:fixed; bottom:100px; right:16px; z-index:1999;
+  background:linear-gradient(135deg,#7bd389,#6aa3ff);
+  border:none; border-radius:12px; padding:10px 14px;
+  color:#000; font-weight:900; cursor:pointer; font-size:13px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  display:flex; align-items:center; gap:6px;
+">✋ 手で操作</button>
+
+<script>
+/* =====================================================
+   GESTURE CONTROLLER
+   ===================================================== */
+(function(){
+  const GESTURE_COOLDOWN   = 350;  // ms between same action
+  const SWIPE_DOWN_THRESH  = 0.12; // ΔY ratio for soft-drop swipe
+  const HARD_DROP_THRESH   = 0.22; // ΔY ratio for hard-drop flick (fast)
+  const SWIPE_SPEED_THRESH = 0.012;// Δy per-frame speed for "fast" flick
+  const HORIZ_THRESH       = 0.10; // ΔX for left/right
+  const HOLD_GESTURE_FRAMES = 18;  // frames gripping → left rotation
+
+  let gestureActive = false;
+  let handsModel = null;
+  let videoEl, canvasEl, canvasCtx;
+  let lastGesture = '';
+  let lastGestureTime = 0;
+  let prevWristY = null;
+  let prevWristX = null;
+  let wristYHistory = [];   // for speed detection
+  let fistFrameCount = 0;   // count consecutive fist frames
+
+  const panel       = document.getElementById('gesturePanel');
+  const toggleBtn   = document.getElementById('gestureToggleBtn');
+  const closeBtn    = document.getElementById('gestureCloseBtn');
+  const statusEl    = document.getElementById('gestureStatus');
+  const actionEl    = document.getElementById('gestureAction');
+
+  /* ---------- helpers ---------- */
+  function canAct(name) {
+    const now = performance.now();
+    if (lastGesture === name && now - lastGestureTime < GESTURE_COOLDOWN) return false;
+    lastGesture = name; lastGestureTime = now;
+    return true;
+  }
+
+  function showAction(text, color='#fff') {
+    if (!actionEl) return;
+    actionEl.textContent = text;
+    actionEl.style.color = color;
+    clearTimeout(actionEl._t);
+    actionEl._t = setTimeout(() => { actionEl.textContent = ''; }, 900);
+  }
+
+  function fireAction(act) {
+    // Fire on active Tetris player (p1)
+    if (typeof p1 === 'undefined' || !p1 || p1.actionLock) return;
+    if (typeof running === 'undefined' || !running) return;
+    if (typeof paused !== 'undefined' && paused) return;
+    handleActionKey(p1, act, false);
+  }
+
+  /* ---------- landmark helpers ---------- */
+  // Each landmark: {x,y,z} normalized 0-1
+  function fingerExtended(lm, tip, pip) {
+    // tip Y < pip Y  (Y grows downward in image, so tip above pip = extended)
+    return lm[tip].y < lm[pip].y;
+  }
+
+  function detectGestureType(lm) {
+    // Thumb: tip=4, ip=3
+    // Index: tip=8, pip=6
+    // Middle: tip=12, pip=10
+    // Ring: tip=16, pip=14
+    // Pinky: tip=20, pip=18
+    const index  = fingerExtended(lm, 8,  6);
+    const middle = fingerExtended(lm, 12, 10);
+    const ring   = fingerExtended(lm, 16, 14);
+    const pinky  = fingerExtended(lm, 20, 18);
+    const extCount = [index, middle, ring, pinky].filter(Boolean).length;
+
+    // FIST: all 4 fingers folded
+    if (!index && !middle && !ring && !pinky) return 'fist';
+
+    // PEACE (✌): index + middle extended, ring + pinky folded
+    if (index && middle && !ring && !pinky) return 'peace';
+
+    // POINT: only index extended
+    if (index && !middle && !ring && !pinky) return 'point';
+
+    // OPEN / SPREAD: 3-4 fingers extended
+    if (extCount >= 3) return 'open';
+
+    return 'other';
+  }
+
+  /* ---------- main results callback ---------- */
+  function onResults(results) {
+    if (!canvasEl || !canvasCtx) return;
+
+    // Draw camera feed + overlay
+    canvasCtx.save();
+    canvasCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+    if (results.image) {
+      canvasCtx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
+    }
+
+    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+      prevWristY = null; prevWristX = null; wristYHistory = []; fistFrameCount = 0;
+      statusEl.textContent = '手が見えません';
+      canvasCtx.restore();
+      return;
+    }
+
+    const lm = results.multiHandLandmarks[0]; // use first hand
+    const wrist = lm[0];
+    const wx = wrist.x, wy = wrist.y;
+
+    // Draw skeleton
+    drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, {color:'rgba(123,211,137,0.7)', lineWidth:1.5});
+    drawLandmarks(canvasCtx, lm, {color:'#6aa3ff', lineWidth:1, radius:2});
+    canvasCtx.restore();
+
+    const gesture = detectGestureType(lm);
+
+    /* ------ gesture: FIST → rotate CW (or CCW if held long) ------ */
+    if (gesture === 'fist') {
+      fistFrameCount++;
+      if (fistFrameCount === 1) {
+        // first frame of fist
+        if (canAct('fist')) {
+          // short fist → rotate CW
+          fireAction('rotCW');
+          showAction('✊ 右回転', '#ffeb3b');
+          statusEl.textContent = '✊ グー検出';
+        }
+      } else if (fistFrameCount === HOLD_GESTURE_FRAMES) {
+        // held fist → rotate CCW
+        if (canAct('fistLong')) {
+          fireAction('rotCCW');
+          showAction('✊ 左回転', '#ff8c00');
+          statusEl.textContent = '✊ 長押しグー';
+        }
+      }
+    } else {
+      fistFrameCount = 0;
+    }
+
+    /* ------ gesture: PEACE ✌ → hold ------ */
+    if (gesture === 'peace') {
+      if (canAct('peace')) {
+        fireAction('hold');
+        showAction('✌️ ホールド', '#9b59b6');
+        statusEl.textContent = '✌️ ピース検出';
+      }
+    }
+
+    /* ------ motion: wrist X delta → left / right ------ */
+    if (prevWristX !== null && gesture !== 'fist' && gesture !== 'peace') {
+      const dx = wx - prevWristX;
+      if (dx < -HORIZ_THRESH) {
+        if (canAct('left')) {
+          fireAction('left');
+          showAction('👈 左移動', '#6aa3ff');
+          statusEl.textContent = '👈 左スワイプ';
+        }
+      } else if (dx > HORIZ_THRESH) {
+        if (canAct('right')) {
+          fireAction('right');
+          showAction('👉 右移動', '#6aa3ff');
+          statusEl.textContent = '👉 右スワイプ';
+        }
+      }
+    }
+
+    /* ------ motion: wrist Y delta → soft / hard drop ------ */
+    wristYHistory.push(wy);
+    if (wristYHistory.length > 6) wristYHistory.shift();
+
+    if (prevWristY !== null && gesture !== 'fist' && gesture !== 'peace') {
+      const dy = wy - prevWristY;
+      // Speed = how fast (large dy in recent frames)
+      const speed = wristYHistory.length >= 2
+        ? Math.abs(wristYHistory[wristYHistory.length-1] - wristYHistory[wristYHistory.length-2])
+        : 0;
+
+      if (dy > HARD_DROP_THRESH && speed >= SWIPE_SPEED_THRESH) {
+        // FAST downward flick → hard drop
+        if (canAct('hard')) {
+          fireAction('hard');
+          showAction('⚡ ハードドロップ！', '#ff4444');
+          statusEl.textContent = '⚡ 素早く振り下ろし';
+        }
+      } else if (dy > SWIPE_DOWN_THRESH) {
+        // Slow downward swipe → soft drop
+        if (canAct('soft')) {
+          fireAction('soft');
+          showAction('👇 ソフトドロップ', '#7bd389');
+          statusEl.textContent = '👇 下スワイプ';
+        }
+      }
+    }
+
+    prevWristX = wx;
+    prevWristY = wy;
+
+    if (gesture === 'open') statusEl.textContent = '🖐️ 手のひら';
+    else if (gesture === 'point') statusEl.textContent = '☝️ 指差し';
+    else if (gesture === 'other') statusEl.textContent = '✋ 認識中...';
+  }
+
+  /* ---------- init MediaPipe ---------- */
+  async function startGesture() {
+    panel.style.display = 'block';
+    toggleBtn.style.display = 'none';
+    statusEl.textContent = '読み込み中...';
+
+    videoEl  = document.getElementById('gestureVideo');
+    canvasEl = document.getElementById('gestureCanvas');
+    canvasEl.width  = 200;
+    canvasEl.height = 150;
+    canvasCtx = canvasEl.getContext('2d');
+
+    // Load MediaPipe scripts dynamically
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
+    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+
+    handsModel = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.55
+    });
+    handsModel.onResults(onResults);
+
+    const cam = new Camera(videoEl, {
+      onFrame: async () => {
+        if (gestureActive) await handsModel.send({ image: videoEl });
+      },
+      width: 320, height: 240
+    });
+
+    try {
+      await cam.start();
+      gestureActive = true;
+      statusEl.textContent = '✅ 準備完了';
+    } catch(err) {
+      statusEl.textContent = '❌ カメラ許可が必要です';
+      console.error('Camera error:', err);
+    }
+  }
+
+  function stopGesture() {
+    gestureActive = false;
+    panel.style.display = 'none';
+    toggleBtn.style.display = '';
+    if (videoEl && videoEl.srcObject) {
+      videoEl.srcObject.getTracks().forEach(t => t.stop());
+      videoEl.srcObject = null;
+    }
+    if (handsModel) { handsModel.close(); handsModel = null; }
+    prevWristY = null; prevWristX = null; wristYHistory = []; fistFrameCount = 0;
+  }
+
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+      const s = document.createElement('script');
+      s.src = src; s.crossOrigin = 'anonymous';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+
+  toggleBtn.addEventListener('click', startGesture);
+  closeBtn.addEventListener('click', stopGesture);
+
+})();
+</script>
+
 </body>
 </html>
