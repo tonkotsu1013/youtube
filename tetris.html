@@ -428,6 +428,7 @@ function updateLangUI() {
     <div style="text-align:center">
       <div style="font-size:48px;font-weight:900;color:var(--accent)" id="goTitle" data-i18n="gameover">GAME OVER</div>
       <div class="infoSmall" id="goText" style="margin-top:8px;font-size:18px">—</div>
+      <div id="goVsCompare" style="display:none;"></div>
       <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button id="goRetry" class="bigBtn" data-i18n="retry">Retry</button>
         <button id="goBack" class="btn secondary" data-i18n="title">Back to Title</button>
@@ -957,6 +958,18 @@ function drawBoardFor(p, ctx, holdCtx, nextCtx, centerDOM, pgDOM, garbageDomId){
         ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = par.color; ctx.fillRect(par.x, par.y, par.size, par.size); ctx.restore(); 
       }
   }
+
+  // 危険警告：積み上がりが天井近くまで来たら赤枠を明滅させる（新機能）
+  if(!p._gameOverHandled){
+    let inDanger = false;
+    for(let r=0; r<4 && !inDanger; r++){ for(let c=0;c<COLS;c++){ if(p.board[r][c] && p.board[r][c] !== 'gameOver'){ inDanger = true; break; } } }
+    if(inDanger){
+      const pulse = 0.35 + 0.35 * Math.abs(Math.sin(now()/220));
+      ctx.save(); ctx.strokeStyle = `rgba(255,45,45,${pulse.toFixed(2)})`; ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, COLS*TILE-6, ROWS*TILE-6); ctx.restore();
+      if(!p._dangerWarned){ p._dangerWarned = true; showCenterNotice(p, '危険！', {color:'#ff5252', time:900}); }
+    } else { p._dangerWarned = false; }
+  }
   
   if(holdCtx){
     holdCtx.clearRect(0,0,holdCtx.canvas.width,holdCtx.canvas.height);
@@ -1044,10 +1057,53 @@ function saveRankingRecord() {
     } catch(e){}
 }
 
+// ============================================================
+// 対戦相手の判定・勝敗確定・結果表示 (VS共通処理)
+// テトリス側とスライム(ぷよ)側、どちらのタイプの相手でも同じ仕組みで
+// 「誰が勝ったか」を判定し、両方のゲームループを同時に停止させる。
+// これにより、片方のプレイヤーがゲームオーバーになった後にもう片方が
+// 動き続けてしまう不具合を解消する。
+// ============================================================
+function getSlot1Player(){ return p1 || puyoP1; }
+function getSlot2Player(){ return p2 || puyoP2; }
+function getOpponentOf(player){
+  if(!player) return null;
+  if(player === p1 || player === puyoP1) return getSlot2Player();
+  if(player === p2 || player === puyoP2) return getSlot1Player();
+  return null;
+}
+function playerStatLabel(pl){
+  if(!pl) return '';
+  if(pl.gameType === 'puyo') return `Score: ${pl.score}<br>Max Chain: ${pl.maxChain}`;
+  return `Score: ${pl.score}<br>Lines: ${pl.totalLines}`;
+}
+// 相手の種類(テトリス/スライム)に関わらず、全てのゲームループを止める
+function freezeMatchOnGameOver(){
+  running = false;
+  puyoRunning = false;
+}
+function renderVsResult(winner, loser){
+  const el = $('goVsCompare'); if(!el) return;
+  if(!winner || !loser || window.isOnlineMatch){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  const box = (pl, isWinner) => `
+    <div style="flex:1;max-width:230px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.04);border:2px solid ${isWinner ? '#ffeb3b' : 'rgba(255,255,255,0.08)'};">
+      <div style="font-weight:900;font-size:14px;color:${isWinner ? '#ffeb3b' : 'var(--muted)'};">${pl.id}${isWinner ? ' \ud83c\udfc6 WIN' : ''}</div>
+      <div class="infoSmall" style="margin-top:6px;line-height:1.6;">${playerStatLabel(pl)}</div>
+    </div>`;
+  el.style.display = '';
+  el.innerHTML = `<div style="display:flex;gap:10px;justify-content:center;margin-top:10px;">${box(winner, true)}${box(loser, false)}</div>`;
+}
+
 function handleGameOver(deadPlayer, isWin = false){
   if(!deadPlayer || deadPlayer._gameOverHandled) return;
-  deadPlayer._gameOverHandled = true; running = false;
-  
+  deadPlayer._gameOverHandled = true;
+
+  const opponent = getOpponentOf(deadPlayer);
+  const isVersusLoss = !isWin && !!opponent && !window.isOnlineMatch;
+
+  // 相手がテトリスでもスライムでも、両方のループを同時に停止する
+  freezeMatchOnGameOver();
+
   if (seekingReplay) return;
 
   // オンライン対戦時：自分が負けた時のみサーバーに通知（isWin=trueの時は送らない）
@@ -1080,9 +1136,15 @@ function handleGameOver(deadPlayer, isWin = false){
           title = isWin ? "YOU WIN!" : "YOU LOSE...";
           $('goTitle').style.color = isWin ? "#ffeb3b" : "#ff2b2b";
           text = isWin ? "対戦相手がゲームオーバーになりました" : "あなたのフィールドが積み上がりました";
+          renderVsResult(null, null);
+      } else if (isVersusLoss) {
+          title = (opponent.id === 'P1' || opponent.id === 'PP1') ? 'P1 WIN!' : 'P2 WIN!';
+          $('goTitle').style.color = '#ffeb3b';
+          text = `${deadPlayer.id} died`;
+          renderVsResult(opponent, deadPlayer);
       } else {
-          text = (p2 && (mode==='vs_local' || mode==='vs_ai' || puyotetMode)) ? `${deadPlayer.id} died` : 
-                 (isWin ? `Time: ${formatTime(deadPlayer.timeElapsed)} / Score: ${deadPlayer.score}` : `Score: ${deadPlayer.score}`);
+          text = (isWin ? `Time: ${formatTime(deadPlayer.timeElapsed)} / Score: ${deadPlayer.score}` : `Score: ${deadPlayer.score}`);
+          renderVsResult(null, null);
       }
       
       $('goTitle').textContent = title;
@@ -1548,8 +1610,8 @@ window.addEventListener('keyup', (e)=>{
 
 function handleActionKey(player, act, allowRepeat=false){
   if(!player || replayPlaying || player.actionLock) return;
-  if(act === 'rotCW'){ if(applyRotation(player, 1)) playRotate(); recordAction(player.id, 'rotateCW'); if(allowRepeat) startAutoRepeat(player, 'rotCW', {immediate:false}); }
-  else if(act === 'rotCCW'){ if(applyRotation(player, -1)) playRotate(); recordAction(player.id, 'rotateCCW'); if(allowRepeat) startAutoRepeat(player, 'rotCCW', {immediate:false}); }
+  if(act === 'rotCW'){ if(applyRotation(player, 1)) playRotate(); recordAction(player.id, 'rotateCW'); startAutoRepeat(player, 'rotCW', {immediate:false}); }
+  else if(act === 'rotCCW'){ if(applyRotation(player, -1)) playRotate(); recordAction(player.id, 'rotateCCW'); startAutoRepeat(player, 'rotCCW', {immediate:false}); }
   else if(act === 'hard'){ 
     while(!collision(player.board, player.current.row+1, player.current.col, player.current.shape)) { player.current.row++; }
     recordAction(player.id,'hardDrop'); triggerShake(8,200, player.id==='P1'?'cardP1':'cardP2'); playHardDrop();
@@ -1565,7 +1627,7 @@ function handleActionKey(player, act, allowRepeat=false){
     if(act === 'left'){ const ok = move(player, -1, 0); if(ok) playMove(); recordAction(player.id,'moveLeft'); if(!ok) triggerShake(4,140, player.id==='P1'?'cardP1':'cardP2'); } 
     if(act === 'right'){ const ok = move(player, 1, 0); if(ok) playMove(); recordAction(player.id,'moveRight'); if(!ok) triggerShake(4,140, player.id==='P1'?'cardP1':'cardP2'); } 
     if(act === 'soft') { const ok = move(player, 0, 1); if(ok) playMove(); recordAction(player.id,'softDrop'); }
-    if(allowRepeat) startAutoRepeat(player, act, {immediate:false}); 
+    startAutoRepeat(player, act, {immediate:false}); 
   }
 }
 
@@ -2700,6 +2762,18 @@ function puyoLockPiece(pp) {
   if(sub.r >= 0 && sub.r < PUYO_ROWS && sub.c >= 0 && sub.c < PUYO_COLS) pp.board[sub.r][sub.c] = cur.subColor;
   pp.current = null;
   pp.phase = 'dropping';
+
+  // スピードは「置いたスライムの数」に応じてなめらかに上げる。
+  // (以前はスコアを基準にしていたため、大連鎖のたびにスコアが数千点単位で
+  //  跳ね上がり、それに伴ってスピードも一気に何段階も上がってしまい
+  //  グラフが急すぎる問題があった。ピース数基準+指数減衰カーブにすることで
+  //  一手ごとに少しずつ滑らかに速くなるようにした)
+  if (puyoMode === 'puyo_marathon') {
+    pp.piecesPlaced = (pp.piecesPlaced || 0) + 1;
+    const speedLevel = Math.min(40, Math.floor(pp.piecesPlaced / 6));
+    pp.dropInterval = Math.round(200 + (800 - 200) * Math.pow(0.945, speedLevel));
+  }
+
   puyoProcessChainAsync(pp);
 }
 
@@ -2799,10 +2873,7 @@ async function puyoChainLoop(pp) {
         let attack = puyoCalcAttack(groups, chainNum);
         pp.score += puyoCalcScore(groups, chainNum);
         
-        if (puyoMode === 'puyo_marathon') {
-            const level = Math.floor(pp.score / 2000);
-            pp.dropInterval = Math.max(150, 800 - level * 20);
-        } else if (puyoMode === 'puyo_free_marathon') {
+        if (puyoMode === 'puyo_free_marathon') {
             pp.dropInterval = 800;
         }
 
@@ -2974,8 +3045,11 @@ function puyoSpawnNext(pp) {
 
 function puyoHandleGameOver(deadPP) {
   if(deadPP._gameOverHandled) return;
-  deadPP._gameOverHandled = true; puyoRunning = false;
-  
+  deadPP._gameOverHandled = true;
+
+  // 相手がテトリスでもスライムでも、両方のループを同時に停止する
+  freezeMatchOnGameOver();
+
   // オンライン対戦時：自分のぷよプレイヤーが負けた時のみサーバーに通知
   if (window.isOnlineMatch && window.socket && window.currentMatchId && deadPP === puyoP1) {
       window.socket.emit('game_over', { matchId: window.currentMatchId });
@@ -2991,15 +3065,18 @@ function puyoHandleGameOver(deadPP) {
       title = "YOU LOSE...";
       text = "あなたのフィールドが積み上がりました";
       $('goTitle').style.color = "#ff2b2b";
+      renderVsResult(null, null);
   } else {
-      const opponent = puyoGetOpponent(deadPP);
+      const opponent = getOpponentOf(deadPP);
       if(opponent && !opponent._gameOverHandled) {
-        title = opponent.id === 'PP1' ? 'P1 WIN!' : 'P2 WIN!';
+        title = (opponent.id === 'PP1' || opponent.id === 'P1') ? 'P1 WIN!' : 'P2 WIN!';
         text = `${deadPP.id} のフィールドが積み上がりました / Chain Max: ${deadPP.maxChain}`;
-        $('goTitle').style.color = 'var(--accent2)';
+        $('goTitle').style.color = '#ffeb3b';
+        renderVsResult(opponent, deadPP);
       } else {
         text = `Score: ${deadPP.score} / Chain Max: ${deadPP.maxChain}`;
         $('goTitle').style.color = 'var(--accent)';
+        renderVsResult(null, null);
       }
   }
 
@@ -3132,6 +3209,18 @@ function puyoDrawBoard(pp, ctx, nextCtx) {
     }
     if(cur.row >= 1) puyoDrawPuyo(ctx, cur.col*PUYO_TILE, (cur.row-1)*PUYO_TILE, cur.mainColor, PUYO_TILE, 0, 1);
     if(sub.r >= 1) puyoDrawPuyo(ctx, sub.c*PUYO_TILE, (sub.r-1)*PUYO_TILE, cur.subColor, PUYO_TILE, 0, 1);
+  }
+
+  // 危険警告：スライムが天井近くまで積み上がったら赤枠を明滅させる（新機能）
+  if(!pp._gameOverHandled){
+    let inDanger = false;
+    for(let r=0; r<3 && !inDanger; r++){ for(let c=0;c<PUYO_COLS;c++){ if(pp.board[r][c]){ inDanger = true; break; } } }
+    if(inDanger){
+      const pulse = 0.35 + 0.35 * Math.abs(Math.sin(now()/220));
+      ctx.save(); ctx.strokeStyle = `rgba(255,45,45,${pulse.toFixed(2)})`; ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, W-6, H-6); ctx.restore();
+      if(!pp._dangerWarned){ pp._dangerWarned = true; puyoShowNotice(pp, '危険！', '#ff5252'); }
+    } else { pp._dangerWarned = false; }
   }
   
   if(pp.notices) { const nowt = now(); pp.notices = pp.notices.filter(n => n.expire > nowt); }
@@ -3412,7 +3501,7 @@ function stopPuyoGame() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if(!puyoRunning && !puyotetMode) return;
+  if(!puyoRunning) return;
   const keyName = 'Key:' + ((e.key === ' ') ? 'Space' : e.key);
   if(puyoKeyState[keyName]) return; puyoKeyState[keyName] = true;
   
@@ -3441,7 +3530,7 @@ window.addEventListener('keydown', (e) => {
 }, {capture: false});
 
 window.addEventListener('keyup', (e) => {
-  if(!puyoRunning && !puyotetMode) return;
+  if(!puyoRunning) return;
   const keyName = 'Key:' + ((e.key === ' ') ? 'Space' : e.key); puyoKeyState[keyName] = false;
   const act1 = getActionFromBinds(SETTINGS.binds1, keyName); const act2 = getActionFromBinds(SETTINGS.binds2, keyName);
   if(puyoP1) { if(act1==='left') puyoStopRepeat(puyoP1,'left'); if(act1==='right') puyoStopRepeat(puyoP1,'right'); if(act1==='soft') puyoStopRepeat(puyoP1,'soft'); }
@@ -4645,561 +4734,5 @@ function balanceGameLoop(ts){
 }
 
 </script>
-
-<!-- =====================================================
-     手ジェスチャー制御システム v2 (MediaPipe Hands)
-     ジェスチャー対応表:
-       ☝️  人差し指1本    → 左移動
-       🤙  小指1本        → 右移動
-       ✌️  2本(人差し+中指) → ソフトドロップ
-       🤟  3本            → ハードドロップ
-       🖐️  4本立て+手の傾き → 回転（傾いた方向）
-       ✊  グー            → ホールド
-     ===================================================== -->
-
-<!-- ジェスチャーUIパネル -->
-<div id="gesturePanel" style="
-  position:fixed; bottom:100px; right:16px; z-index:2000;
-  background:rgba(7,16,40,0.94); border:1px solid rgba(123,211,137,0.3);
-  border-radius:14px; padding:0; width:240px;
-  box-shadow:0 8px 32px rgba(0,0,0,0.7); display:none; font-size:12px;
-  user-select:none;
-">
-  <!-- ドラッグハンドル（タイトルバー） -->
-  <div id="gestureDragHandle" style="
-    display:flex;justify-content:space-between;align-items:center;
-    padding:9px 12px; cursor:grab; border-radius:14px 14px 0 0;
-    background:rgba(123,211,137,0.08); border-bottom:1px solid rgba(123,211,137,0.15);
-  ">
-    <span style="font-weight:900;color:#7bd389;font-size:13px;pointer-events:none">✋ ジェスチャー操作</span>
-    <div style="display:flex;gap:6px;align-items:center">
-      <!-- ガイド折りたたみ -->
-      <button id="gestureGuideToggle" title="操作ガイド" style="background:none;border:none;color:rgba(255,255,255,0.4);cursor:pointer;font-size:13px;padding:0 2px;line-height:1">？</button>
-      <button id="gestureCloseBtn" style="background:none;border:none;color:rgba(255,255,255,0.45);cursor:pointer;font-size:15px;padding:0 2px;line-height:1">✕</button>
-    </div>
-  </div>
-
-  <div style="padding:10px 12px 12px">
-    <!-- カメラプレビュー（リサイズ対応） -->
-    <div id="gesturePreviewWrap" style="position:relative;background:#000;border-radius:8px;overflow:hidden;margin-bottom:8px">
-      <video id="gestureVideo" autoplay playsinline muted style="width:100%;display:block;transform:scaleX(-1);object-fit:cover"></video>
-      <canvas id="gestureCanvas" style="position:absolute;top:0;left:0;width:100%;height:100%;transform:scaleX(-1)"></canvas>
-      <div id="gestureStatus" style="position:absolute;bottom:4px;left:6px;right:6px;font-size:11px;font-weight:700;color:#7bd389;text-shadow:0 1px 4px #000;background:rgba(0,0,0,0.55);border-radius:4px;padding:2px 6px;"></div>
-    </div>
-
-    <!-- アクション表示 -->
-    <div id="gestureAction" style="text-align:center;font-weight:900;font-size:15px;color:#fff;min-height:20px;margin-bottom:7px;letter-spacing:1px;"></div>
-
-    <!-- 傾きバー -->
-    <div id="tiltBar" style="display:none;margin-bottom:7px">
-      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:3px;text-align:center">手の傾き（回転方向）</div>
-      <div style="position:relative;height:8px;background:rgba(255,255,255,0.1);border-radius:4px;overflow:hidden">
-        <div id="tiltIndicator" style="position:absolute;top:0;height:100%;width:6px;background:#ffeb3b;border-radius:3px;transition:left 0.08s;left:50%"></div>
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:9px;color:rgba(255,255,255,0.35);margin-top:2px"><span>↺左回転</span><span>右回転↻</span></div>
-    </div>
-
-    <!-- 操作ガイド（折りたたみ可） -->
-    <div id="gestureGuide" style="color:rgba(255,255,255,0.48);line-height:1.8;font-size:10px;">
-      ☝️ 人差し指 1本　→ 左移動<br>
-      🤙 小指 1本　　　→ 右移動<br>
-      ✌️ 2本（人中）　 → ソフトドロップ<br>
-      🤟 3本　　　　　 → ハードドロップ<br>
-      ✊ グー + 手首回転 → 回した方向に回転<br>
-      🤜 グー（手の甲）→ ホールド
-    </div>
-  </div>
-
-  <!-- リサイズハンドル（右下） -->
-  <div id="gestureResizeHandle" style="
-    position:absolute; bottom:0; right:0;
-    width:18px; height:18px; cursor:nwse-resize;
-    display:flex; align-items:flex-end; justify-content:flex-end;
-    padding:3px; box-sizing:border-box; border-radius:0 0 14px 0;
-  ">
-    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-      <path d="M9 1L1 9M9 5L5 9M9 9" stroke="rgba(123,211,137,0.5)" stroke-width="1.5" stroke-linecap="round"/>
-    </svg>
-  </div>
-</div>
-
-<!-- ジェスチャー起動ボタン -->
-<button id="gestureToggleBtn" style="
-  position:fixed; bottom:100px; right:16px; z-index:1999;
-  background:linear-gradient(135deg,#7bd389,#6aa3ff);
-  border:none; border-radius:12px; padding:10px 16px;
-  color:#000; font-weight:900; cursor:pointer; font-size:13px;
-  box-shadow:0 4px 16px rgba(0,0,0,0.4);
-">✋ 手で操作</button>
-
-<script>
-/* =====================================================
-   GESTURE CONTROLLER v2
-   ===================================================== */
-(function(){
-
-  /* ---- チューニング定数 ---- */
-  const COOLDOWN       = 380;  // ms: 同一アクションの再トリガー抑制
-  const STABLE_FRAMES  = 4;    // 同じジェスチャーがN連続で確定
-  // グー回転: 手首ロール角の変化量閾値（ラジアン）
-  const ROT_THRESH     = 0.30; // これ以上変化したら回転発火
-
-  /* ---- 状態 ---- */
-  let gestureActive = false;
-  let handsModel    = null;
-  let videoEl, canvasEl, canvasCtx;
-
-  const lastFiredAt = {};
-
-  // ジェスチャー安定化
-  let stableCount  = 0;
-  let prevGesture  = null;
-
-  // グー状態のロール角トラッキング
-  let fistRollBaseline  = null; // グーになった瞬間のロール角を記録
-  let fistRollHistory   = [];   // スムージング用
-  let fistActionFired   = false;// 一回のグーで1アクションのみ
-
-  /* ---- DOM ---- */
-  const panel     = document.getElementById('gesturePanel');
-  const toggleBtn = document.getElementById('gestureToggleBtn');
-  const closeBtn  = document.getElementById('gestureCloseBtn');
-  const statusEl  = document.getElementById('gestureStatus');
-  const actionEl  = document.getElementById('gestureAction');
-  const tiltBar   = document.getElementById('tiltBar');
-  const tiltInd   = document.getElementById('tiltIndicator');
-
-  /* ================================================
-     ユーティリティ
-     ================================================ */
-  function canFire(name) {
-    const t = performance.now();
-    if (lastFiredAt[name] && t - lastFiredAt[name] < COOLDOWN) return false;
-    lastFiredAt[name] = t;
-    return true;
-  }
-
-  function showAction(text, color = '#fff') {
-    if (!actionEl) return;
-    actionEl.textContent = text;
-    actionEl.style.color = color;
-    clearTimeout(actionEl._hide);
-    actionEl._hide = setTimeout(() => { actionEl.textContent = ''; }, 1000);
-  }
-
-  function fireGameAction(act) {
-    if (typeof p1 === 'undefined' || !p1 || p1.actionLock) return;
-    if (typeof running === 'undefined' || !running) return;
-    if (typeof paused !== 'undefined' && paused) return;
-    handleActionKey(p1, act, false);
-  }
-
-  /* ================================================
-     指の伸び判定
-     tip.y < pip.y → 伸びている（Y軸は下向き正）
-     ================================================ */
-  function isUp(lm, tip, pip) { return lm[tip].y < lm[pip].y; }
-
-  /* ================================================
-     手の向き判定（手のひら vs 手の甲がカメラを向いているか）
-     
-     MediaPipe は正規化済み座標を返す。
-     右手の場合: 手のひら向き → 親指が画面右側（x大）
-                 手の甲向き  → 親指が画面左側（x小）
-     左手の場合: 逆になる。
-     
-     handedness を使って判定する。
-     "Right" = 実際の右手（ミラー反転前）。
-     カメラ映像は scaleX(-1) してあるので、
-     画面上では "Right" の手が左に見える。
-     
-     手のひら向きの判定:
-       親指先端(4).x  vs  小指MCP(17).x
-       Right hand, palm facing camera: thumb(4).x > pinky_mcp(17).x  → raw座標で
-       (rawは反転前なので画面左＝x大)
-       
-     簡易版: 人差し指MCP(5) と 小指MCP(17) の外積のZ成分で向きを判定
-     cross.z > 0  → 手のひらがカメラ向き（正面）
-     cross.z < 0  → 手の甲がカメラ向き（裏）
-     ================================================ */
-  function isPalmFacing(lm) {
-    // 手首(0)→人差し指MCP(5) ベクトル A
-    const ax = lm[5].x - lm[0].x, ay = lm[5].y - lm[0].y;
-    // 手首(0)→小指MCP(17) ベクトル B
-    const bx = lm[17].x - lm[0].x, by = lm[17].y - lm[0].y;
-    // 外積Z成分: ax*by - ay*bx
-    // 手のひら向き（右手）→ 正の値
-    // 手の甲向き（右手）  → 負の値
-    // ミラー反転しているので符号が逆になる → < 0 で手のひら向き
-    return (ax * by - ay * bx) < 0;
-  }
-
-  /* ================================================
-     グーの「手首ロール角」計算
-     手首(0) → 中指MCP(9) ベクトルのX/Y から角度を求める
-     ================================================ */
-  function computeFistRoll(lm) {
-    const dx = lm[9].x - lm[0].x;
-    const dy = lm[9].y - lm[0].y;
-    return Math.atan2(dy, dx); // ラジアン
-  }
-
-  /* ================================================
-     ジェスチャー分類
-     ================================================ */
-  function classifyGesture(lm) {
-    const index  = isUp(lm,  8,  6);
-    const middle = isUp(lm, 12, 10);
-    const ring   = isUp(lm, 16, 14);
-    const pinky  = isUp(lm, 20, 18);
-
-    if (!index && !middle && !ring && !pinky) return 'fist';
-    if (index && !middle && !ring && !pinky)  return 'index';
-    if (!index && !middle && !ring && pinky)  return 'pinky';
-    if (index && middle && !ring && !pinky)   return 'two';
-    if (index && middle && ring && !pinky)    return 'three';
-    if (index && middle && !ring && pinky)    return 'three';
-    // 4本は 'other' 扱い（何もしない）
-    return 'other';
-  }
-
-  /* ================================================
-     ロール角ビジュアライザ更新
-     ================================================ */
-  function updateRollBar(delta, show) {
-    if (!tiltBar || !tiltInd) return;
-    tiltBar.style.display = show ? 'block' : 'none';
-    if (show) {
-      // delta: -π～π → 0%～100%（中央=0）
-      const norm = Math.max(-1, Math.min(1, delta / (Math.PI * 0.5)));
-      const pct  = (norm * 0.5 + 0.5) * 100;
-      tiltInd.style.left = Math.max(2, Math.min(92, pct)) + '%';
-    }
-  }
-
-  /* ================================================
-     メイン: MediaPipe 結果コールバック
-     ================================================ */
-  function onResults(results) {
-    if (!canvasEl || !canvasCtx) return;
-
-    // canvas サイズ同期
-    const pw = canvasEl.parentElement ? canvasEl.parentElement.offsetWidth  : canvasEl.width;
-    const ph = canvasEl.parentElement ? canvasEl.parentElement.offsetHeight : canvasEl.height;
-    if (canvasEl.width !== pw || canvasEl.height !== ph) {
-      canvasEl.width = pw; canvasEl.height = ph;
-    }
-
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
-    if (results.image) canvasCtx.drawImage(results.image, 0, 0, canvasEl.width, canvasEl.height);
-
-    if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-      stableCount = 0; prevGesture = null;
-      fistRollBaseline = null; fistRollHistory = []; fistActionFired = false;
-      statusEl.textContent = '手が見えません 👋';
-      updateRollBar(0, false);
-      canvasCtx.restore();
-      return;
-    }
-
-    const lm = results.multiHandLandmarks[0];
-
-    if (typeof drawConnectors !== 'undefined') {
-      drawConnectors(canvasCtx, lm, HAND_CONNECTIONS, { color: 'rgba(123,211,137,0.75)', lineWidth: 1.5 });
-      drawLandmarks(canvasCtx, lm, { color: '#6aa3ff', lineWidth: 1, radius: 2.5 });
-    }
-    canvasCtx.restore();
-
-    /* ---- ジェスチャー安定化 ---- */
-    const raw = classifyGesture(lm);
-    if (raw === prevGesture) { stableCount++; } else { stableCount = 1; prevGesture = raw; }
-    if (stableCount < STABLE_FRAMES) { statusEl.textContent = `認識中... (${raw})`; return; }
-
-    const gesture = raw;
-
-    /* ==== ジェスチャー別処理 ==== */
-
-    /* ✊ グー */
-    if (gesture === 'fist') {
-      const palmFacing = isPalmFacing(lm);
-      const roll = computeFistRoll(lm);
-
-      // スムージング
-      fistRollHistory.push(roll);
-      if (fistRollHistory.length > 4) fistRollHistory.shift();
-      const smoothRoll = fistRollHistory.reduce((a, b) => a + b, 0) / fistRollHistory.length;
-
-      // グーになった瞬間にベースラインを記録
-      if (fistRollBaseline === null) {
-        fistRollBaseline = smoothRoll;
-        fistActionFired  = false;
-      }
-
-      /* 手の甲向きグー → ホールド */
-      if (!palmFacing) {
-        statusEl.textContent = '✊ 手の甲グー → ホールド';
-        updateRollBar(0, false);
-        if (!fistActionFired && canFire('hold')) {
-          fistActionFired = true;
-          fireGameAction('hold');
-          showAction('✊ ホールド', '#9b59b6');
-        }
-        return;
-      }
-
-      /* 手のひら向きグー → 回転量で回転方向を判定 */
-      // 角度差（-π ～ +π に正規化）
-      let delta = smoothRoll - fistRollBaseline;
-      if (delta >  Math.PI) delta -= 2 * Math.PI;
-      if (delta < -Math.PI) delta += 2 * Math.PI;
-
-      updateRollBar(delta, true);
-
-      if (!fistActionFired) {
-        if (delta > ROT_THRESH) {
-          // 時計回りに手首を回した → 右回転
-          fistActionFired = true;
-          if (canFire('rotCW')) {
-            fireGameAction('rotCW');
-            showAction('✊ 右回転 ↻', '#ffeb3b');
-          }
-          statusEl.textContent = `✊ 手首CW → 右回転 (Δ${delta.toFixed(2)})`;
-        } else if (delta < -ROT_THRESH) {
-          // 反時計回りに手首を回した → 左回転
-          fistActionFired = true;
-          if (canFire('rotCCW')) {
-            fireGameAction('rotCCW');
-            showAction('✊ 左回転 ↺', '#ffeb3b');
-          }
-          statusEl.textContent = `✊ 手首CCW → 左回転 (Δ${delta.toFixed(2)})`;
-        } else {
-          statusEl.textContent = `✊ グー 手首待機 (Δ${delta.toFixed(2)})`;
-        }
-      } else {
-        statusEl.textContent = `✊ グー 回転済み`;
-      }
-      return;
-
-    } else {
-      // グー以外になったらリセット
-      fistRollBaseline = null; fistRollHistory = []; fistActionFired = false;
-      updateRollBar(0, false);
-    }
-
-    /* ☝️ 人差し指1本 → 左移動 */
-    if (gesture === 'index') {
-      statusEl.textContent = '☝️ 人差し指 → 左移動';
-      if (canFire('left')) { fireGameAction('left'); showAction('☝️ 左移動', '#6aa3ff'); }
-      return;
-    }
-
-    /* 🤙 小指1本 → 右移動 */
-    if (gesture === 'pinky') {
-      statusEl.textContent = '🤙 小指 → 右移動';
-      if (canFire('right')) { fireGameAction('right'); showAction('🤙 右移動', '#6aa3ff'); }
-      return;
-    }
-
-    /* ✌️ 2本 → ソフトドロップ */
-    if (gesture === 'two') {
-      statusEl.textContent = '✌️ 2本 → ソフトドロップ';
-      if (canFire('soft')) { fireGameAction('soft'); showAction('✌️ ソフトドロップ', '#7bd389'); }
-      return;
-    }
-
-    /* 🤟 3本 → ハードドロップ */
-    if (gesture === 'three') {
-      statusEl.textContent = '🤟 3本 → ハードドロップ！';
-      if (canFire('hard')) { fireGameAction('hard'); showAction('🤟 ハードドロップ！', '#ff4444'); }
-      return;
-    }
-
-    /* 4本 or other → 何もしない */
-    statusEl.textContent = '✋ 待機中...';
-  }
-
-  /* ================================================
-     MediaPipe 初期化
-     ================================================ */
-  async function startGesture() {
-    panel.style.display = 'block';
-    toggleBtn.style.display = 'none';
-    statusEl.textContent = '⏳ 読み込み中...';
-
-    videoEl  = document.getElementById('gestureVideo');
-    canvasEl = document.getElementById('gestureCanvas');
-    const previewWrap = document.getElementById('gesturePreviewWrap');
-    // 初期プレビュー高さ = 幅の 75%（4:3）
-    const initW = panel.offsetWidth - 24;
-    const initH = Math.round(initW * 0.75);
-    if (previewWrap) previewWrap.style.height = initH + 'px';
-    canvasEl.width  = initW;
-    canvasEl.height = initH;
-    canvasCtx = canvasEl.getContext('2d');
-
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js');
-    await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
-
-    handsModel = new Hands({
-      locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
-    });
-    handsModel.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.70,
-      minTrackingConfidence: 0.60
-    });
-    handsModel.onResults(onResults);
-
-    const cam = new Camera(videoEl, {
-      onFrame: async () => {
-        if (gestureActive) await handsModel.send({ image: videoEl });
-      },
-      width: 320, height: 240
-    });
-
-    try {
-      await cam.start();
-      gestureActive = true;
-      statusEl.textContent = '✅ 準備完了！手を向けてください';
-    } catch(err) {
-      statusEl.textContent = '❌ カメラ許可が必要です';
-      console.error('Camera error:', err);
-    }
-  }
-
-  function stopGesture() {
-    gestureActive = false;
-    panel.style.display = 'none';
-    toggleBtn.style.display = '';
-    if (videoEl && videoEl.srcObject) {
-      videoEl.srcObject.getTracks().forEach(t => t.stop());
-      videoEl.srcObject = null;
-    }
-    if (handsModel) { handsModel.close(); handsModel = null; }
-    stableGesture = null; stableCount = 0; prevGesture = null;
-    fistStartTime = null; fistFired = false; tiltHistory = [];
-  }
-
-  function loadScript(src) {
-    return new Promise((res, rej) => {
-      if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
-      const s = document.createElement('script');
-      s.src = src; s.crossOrigin = 'anonymous';
-      s.onload = res; s.onerror = rej;
-      document.head.appendChild(s);
-    });
-  }
-
-  toggleBtn.addEventListener('click', startGesture);
-  closeBtn.addEventListener('click', stopGesture);
-
-  /* ================================================
-     ドラッグ移動
-     ================================================ */
-  (function() {
-    const handle = document.getElementById('gestureDragHandle');
-    let dragging = false, ox = 0, oy = 0;
-
-    handle.addEventListener('mousedown', e => {
-      if (e.target.tagName === 'BUTTON') return;
-      dragging = true;
-      const r = panel.getBoundingClientRect();
-      ox = e.clientX - r.left;
-      oy = e.clientY - r.top;
-      handle.style.cursor = 'grabbing';
-      e.preventDefault();
-    });
-    handle.addEventListener('touchstart', e => {
-      if (e.target.tagName === 'BUTTON') return;
-      dragging = true;
-      const r = panel.getBoundingClientRect();
-      ox = e.touches[0].clientX - r.left;
-      oy = e.touches[0].clientY - r.top;
-      e.preventDefault();
-    }, {passive: false});
-
-    function onMove(cx, cy) {
-      if (!dragging) return;
-      const x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  cx - ox));
-      const y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, cy - oy));
-      panel.style.right  = 'auto';
-      panel.style.bottom = 'auto';
-      panel.style.left   = x + 'px';
-      panel.style.top    = y + 'px';
-    }
-    function onEnd() { dragging = false; handle.style.cursor = 'grab'; }
-
-    window.addEventListener('mousemove', e => onMove(e.clientX, e.clientY));
-    window.addEventListener('mouseup',   onEnd);
-    window.addEventListener('touchmove', e => { if(dragging) { onMove(e.touches[0].clientX, e.touches[0].clientY); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend',  onEnd);
-  })();
-
-  /* ================================================
-     リサイズ（右下ハンドル）
-     ================================================ */
-  (function() {
-    const resizeHandle = document.getElementById('gestureResizeHandle');
-    const preview      = document.getElementById('gesturePreviewWrap');
-    let resizing = false, startX = 0, startW = 0, startPH = 0;
-
-    const MIN_W = 160, MAX_W = 480;
-
-    resizeHandle.addEventListener('mousedown', e => {
-      resizing = true;
-      startX = e.clientX;
-      startW = panel.offsetWidth;
-      startPH = preview ? preview.offsetHeight : 160;
-      e.preventDefault();
-    });
-    resizeHandle.addEventListener('touchstart', e => {
-      resizing = true;
-      startX = e.touches[0].clientX;
-      startW = panel.offsetWidth;
-      startPH = preview ? preview.offsetHeight : 160;
-      e.preventDefault();
-    }, {passive:false});
-
-    function onMove(cx) {
-      if (!resizing) return;
-      const dw = cx - startX;
-      const nw = Math.max(MIN_W, Math.min(MAX_W, startW + dw));
-      panel.style.width = nw + 'px';
-      // プレビューは 4:3 比率でリサイズ
-      if (preview) {
-        const ph = Math.round((nw - 24) * 0.75);
-        preview.style.height = ph + 'px';
-        const cv = document.getElementById('gestureCanvas');
-        if (cv) { cv.width = nw - 24; cv.height = ph; }
-      }
-    }
-    function onEnd() { resizing = false; }
-
-    window.addEventListener('mousemove', e => onMove(e.clientX));
-    window.addEventListener('mouseup',   onEnd);
-    window.addEventListener('touchmove', e => { if(resizing){ onMove(e.touches[0].clientX); e.preventDefault(); } }, {passive:false});
-    window.addEventListener('touchend',  onEnd);
-  })();
-
-  /* ================================================
-     操作ガイド 折りたたみ
-     ================================================ */
-  (function() {
-    const guideToggle = document.getElementById('gestureGuideToggle');
-    const guide       = document.getElementById('gestureGuide');
-    let open = true;
-    guideToggle.addEventListener('click', () => {
-      open = !open;
-      guide.style.display = open ? '' : 'none';
-      guideToggle.style.color = open ? 'rgba(255,255,255,0.4)' : '#7bd389';
-    });
-  })();
-
-})();
-</script>
-
 </body>
 </html>
