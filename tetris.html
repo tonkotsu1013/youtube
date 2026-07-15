@@ -428,6 +428,7 @@ function updateLangUI() {
     <div style="text-align:center">
       <div style="font-size:48px;font-weight:900;color:var(--accent)" id="goTitle" data-i18n="gameover">GAME OVER</div>
       <div class="infoSmall" id="goText" style="margin-top:8px;font-size:18px">—</div>
+      <div id="goVsCompare" style="display:none;"></div>
       <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button id="goRetry" class="bigBtn" data-i18n="retry">Retry</button>
         <button id="goBack" class="btn secondary" data-i18n="title">Back to Title</button>
@@ -957,6 +958,18 @@ function drawBoardFor(p, ctx, holdCtx, nextCtx, centerDOM, pgDOM, garbageDomId){
         ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = par.color; ctx.fillRect(par.x, par.y, par.size, par.size); ctx.restore(); 
       }
   }
+
+  // 危険警告：積み上がりが天井近くまで来たら赤枠を明滅させる（新機能）
+  if(!p._gameOverHandled){
+    let inDanger = false;
+    for(let r=0; r<4 && !inDanger; r++){ for(let c=0;c<COLS;c++){ if(p.board[r][c] && p.board[r][c] !== 'gameOver'){ inDanger = true; break; } } }
+    if(inDanger){
+      const pulse = 0.35 + 0.35 * Math.abs(Math.sin(now()/220));
+      ctx.save(); ctx.strokeStyle = `rgba(255,45,45,${pulse.toFixed(2)})`; ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, COLS*TILE-6, ROWS*TILE-6); ctx.restore();
+      if(!p._dangerWarned){ p._dangerWarned = true; showCenterNotice(p, '危険！', {color:'#ff5252', time:900}); }
+    } else { p._dangerWarned = false; }
+  }
   
   if(holdCtx){
     holdCtx.clearRect(0,0,holdCtx.canvas.width,holdCtx.canvas.height);
@@ -1044,10 +1057,53 @@ function saveRankingRecord() {
     } catch(e){}
 }
 
+// ============================================================
+// 対戦相手の判定・勝敗確定・結果表示 (VS共通処理)
+// テトリス側とスライム(ぷよ)側、どちらのタイプの相手でも同じ仕組みで
+// 「誰が勝ったか」を判定し、両方のゲームループを同時に停止させる。
+// これにより、片方のプレイヤーがゲームオーバーになった後にもう片方が
+// 動き続けてしまう不具合を解消する。
+// ============================================================
+function getSlot1Player(){ return p1 || puyoP1; }
+function getSlot2Player(){ return p2 || puyoP2; }
+function getOpponentOf(player){
+  if(!player) return null;
+  if(player === p1 || player === puyoP1) return getSlot2Player();
+  if(player === p2 || player === puyoP2) return getSlot1Player();
+  return null;
+}
+function playerStatLabel(pl){
+  if(!pl) return '';
+  if(pl.gameType === 'puyo') return `Score: ${pl.score}<br>Max Chain: ${pl.maxChain}`;
+  return `Score: ${pl.score}<br>Lines: ${pl.totalLines}`;
+}
+// 相手の種類(テトリス/スライム)に関わらず、全てのゲームループを止める
+function freezeMatchOnGameOver(){
+  running = false;
+  puyoRunning = false;
+}
+function renderVsResult(winner, loser){
+  const el = $('goVsCompare'); if(!el) return;
+  if(!winner || !loser || window.isOnlineMatch){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  const box = (pl, isWinner) => `
+    <div style="flex:1;max-width:230px;padding:10px 14px;border-radius:10px;background:rgba(255,255,255,0.04);border:2px solid ${isWinner ? '#ffeb3b' : 'rgba(255,255,255,0.08)'};">
+      <div style="font-weight:900;font-size:14px;color:${isWinner ? '#ffeb3b' : 'var(--muted)'};">${pl.id}${isWinner ? ' \ud83c\udfc6 WIN' : ''}</div>
+      <div class="infoSmall" style="margin-top:6px;line-height:1.6;">${playerStatLabel(pl)}</div>
+    </div>`;
+  el.style.display = '';
+  el.innerHTML = `<div style="display:flex;gap:10px;justify-content:center;margin-top:10px;">${box(winner, true)}${box(loser, false)}</div>`;
+}
+
 function handleGameOver(deadPlayer, isWin = false){
   if(!deadPlayer || deadPlayer._gameOverHandled) return;
-  deadPlayer._gameOverHandled = true; running = false;
-  
+  deadPlayer._gameOverHandled = true;
+
+  const opponent = getOpponentOf(deadPlayer);
+  const isVersusLoss = !isWin && !!opponent && !window.isOnlineMatch;
+
+  // 相手がテトリスでもスライムでも、両方のループを同時に停止する
+  freezeMatchOnGameOver();
+
   if (seekingReplay) return;
 
   // オンライン対戦時：自分が負けた時のみサーバーに通知（isWin=trueの時は送らない）
@@ -1080,9 +1136,15 @@ function handleGameOver(deadPlayer, isWin = false){
           title = isWin ? "YOU WIN!" : "YOU LOSE...";
           $('goTitle').style.color = isWin ? "#ffeb3b" : "#ff2b2b";
           text = isWin ? "対戦相手がゲームオーバーになりました" : "あなたのフィールドが積み上がりました";
+          renderVsResult(null, null);
+      } else if (isVersusLoss) {
+          title = (opponent.id === 'P1' || opponent.id === 'PP1') ? 'P1 WIN!' : 'P2 WIN!';
+          $('goTitle').style.color = '#ffeb3b';
+          text = `${deadPlayer.id} died`;
+          renderVsResult(opponent, deadPlayer);
       } else {
-          text = (p2 && (mode==='vs_local' || mode==='vs_ai' || puyotetMode)) ? `${deadPlayer.id} died` : 
-                 (isWin ? `Time: ${formatTime(deadPlayer.timeElapsed)} / Score: ${deadPlayer.score}` : `Score: ${deadPlayer.score}`);
+          text = (isWin ? `Time: ${formatTime(deadPlayer.timeElapsed)} / Score: ${deadPlayer.score}` : `Score: ${deadPlayer.score}`);
+          renderVsResult(null, null);
       }
       
       $('goTitle').textContent = title;
@@ -1347,9 +1409,7 @@ function tetAttackToPuyoNuisance(lines, isTspin, isPC, isB2B, combo) {
 }
 
 function puyoAttackToTetGarbage(puyoNuisance) {
-  // ぷよ盤面は6列、テトリスのガベージ1段=6個のおじゃまぷよ相当として換算
-  // （テト→ぷよの tetAttackToPuyoNuisance の ×6 と対称にする）
-  return Math.floor(puyoNuisance / 6);
+  return Math.floor(puyoNuisance / 5);
 }
 
 function applyPendingGarbageToPlayer(player){
@@ -2546,7 +2606,6 @@ class PuyoPlayer {
     this.maxChain = 0;
     this.nuisancePending = 0;
     this.nuisanceReceived = 0;
-    this.attackCarry = 0;
     this.dropInterval = 800;
     this.dropCounter = 0;
     this.timeElapsed = 0;
@@ -2703,6 +2762,18 @@ function puyoLockPiece(pp) {
   if(sub.r >= 0 && sub.r < PUYO_ROWS && sub.c >= 0 && sub.c < PUYO_COLS) pp.board[sub.r][sub.c] = cur.subColor;
   pp.current = null;
   pp.phase = 'dropping';
+
+  // スピードは「置いたスライムの数」に応じてなめらかに上げる。
+  // (以前はスコアを基準にしていたため、大連鎖のたびにスコアが数千点単位で
+  //  跳ね上がり、それに伴ってスピードも一気に何段階も上がってしまい
+  //  グラフが急すぎる問題があった。ピース数基準+指数減衰カーブにすることで
+  //  一手ごとに少しずつ滑らかに速くなるようにした)
+  if (puyoMode === 'puyo_marathon') {
+    pp.piecesPlaced = (pp.piecesPlaced || 0) + 1;
+    const speedLevel = Math.min(40, Math.floor(pp.piecesPlaced / 6));
+    pp.dropInterval = Math.round(200 + (800 - 200) * Math.pow(0.945, speedLevel));
+  }
+
   puyoProcessChainAsync(pp);
 }
 
@@ -2799,13 +2870,10 @@ async function puyoChainLoop(pp) {
         puyoDrawAll();
         await sleep(300);
         
-        let attack = puyoCalcAttack(groups, chainNum, pp);
+        let attack = puyoCalcAttack(groups, chainNum);
         pp.score += puyoCalcScore(groups, chainNum);
         
-        if (puyoMode === 'puyo_marathon') {
-            const level = Math.floor(pp.score / 2000);
-            pp.dropInterval = Math.max(150, 800 - level * 20);
-        } else if (puyoMode === 'puyo_free_marathon') {
+        if (puyoMode === 'puyo_free_marathon') {
             pp.dropInterval = 800;
         }
 
@@ -2823,8 +2891,6 @@ async function puyoChainLoop(pp) {
         puyoDrawAll();
         await sleep(80);
     }
-
-    pp.attackCarry = 0; // 連鎖が完全に終了したら端数はリセット（本家仕様）
 
     if (chainNum > 0) {
         let isEmpty = true;
@@ -2895,15 +2961,8 @@ function puyoFindPops(board) {
   return groups;
 }
 
-function puyoChainBonus(chainNum) {
-  // 本家「ぷよぷよ通」の連鎖ボーナス表。6連鎖以降は32×(n-3)で増加し999で頭打ち。
-  const table = [0, 0, 8, 16, 32, 64];
-  if (chainNum <= 5) return table[Math.max(0, chainNum)] || 0;
-  return Math.min(32 * (chainNum - 3), 999);
-}
-
 function puyoCalcScore(groups, chainNum) {
-  const chainBonus = puyoChainBonus(chainNum);
+  const chainBonus = [0, 0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320][Math.min(chainNum, 13)] || 320;
   let score = 0;
   for(const g of groups) {
     const puyoBonus = Math.max(0, g.length - 4);
@@ -2912,16 +2971,20 @@ function puyoCalcScore(groups, chainNum) {
   return score;
 }
 
-function puyoCalcAttack(groups, chainNum, pp) {
-  // 本家「ぷよぷよ通」準拠：このリンクの得点を算出し、70で割った値がおじゃまぷよ数。
-  // 端数（70で割り切れなかった分）は同一連鎖内の次のリンクへ持ち越し、
-  // 連鎖が完全に終了した時点でリセットする（本家のおじゃまぷよ算と同じ挙動）。
-  const linkScore = puyoCalcScore(groups, chainNum);
-  const carry = pp ? (pp.attackCarry || 0) : 0;
-  const total = linkScore + carry;
-  const nuisance = Math.floor(total / 70);
-  if (pp) pp.attackCarry = total - nuisance * 70;
-  return nuisance;
+function puyoCalcAttack(groups, chainNum) {
+  if (chainNum === 1) return 0; 
+  if (chainNum === 2) return 12; 
+  if (chainNum === 3) return 30; 
+  if (chainNum === 4) return 60; 
+  if (chainNum === 5) return 100; 
+  if (chainNum >= 10) return 1000; 
+  
+  if (chainNum === 6) return 150;
+  if (chainNum === 7) return 250;
+  if (chainNum === 8) return 400;
+  if (chainNum === 9) return 600;
+  
+  return 1000;
 }
 
 function puyoCascadeNuisanceStep(board) {
@@ -2982,8 +3045,11 @@ function puyoSpawnNext(pp) {
 
 function puyoHandleGameOver(deadPP) {
   if(deadPP._gameOverHandled) return;
-  deadPP._gameOverHandled = true; puyoRunning = false;
-  
+  deadPP._gameOverHandled = true;
+
+  // 相手がテトリスでもスライムでも、両方のループを同時に停止する
+  freezeMatchOnGameOver();
+
   // オンライン対戦時：自分のぷよプレイヤーが負けた時のみサーバーに通知
   if (window.isOnlineMatch && window.socket && window.currentMatchId && deadPP === puyoP1) {
       window.socket.emit('game_over', { matchId: window.currentMatchId });
@@ -2999,15 +3065,18 @@ function puyoHandleGameOver(deadPP) {
       title = "YOU LOSE...";
       text = "あなたのフィールドが積み上がりました";
       $('goTitle').style.color = "#ff2b2b";
+      renderVsResult(null, null);
   } else {
-      const opponent = puyoGetOpponent(deadPP);
+      const opponent = getOpponentOf(deadPP);
       if(opponent && !opponent._gameOverHandled) {
-        title = opponent.id === 'PP1' ? 'P1 WIN!' : 'P2 WIN!';
+        title = (opponent.id === 'PP1' || opponent.id === 'P1') ? 'P1 WIN!' : 'P2 WIN!';
         text = `${deadPP.id} のフィールドが積み上がりました / Chain Max: ${deadPP.maxChain}`;
-        $('goTitle').style.color = 'var(--accent2)';
+        $('goTitle').style.color = '#ffeb3b';
+        renderVsResult(opponent, deadPP);
       } else {
         text = `Score: ${deadPP.score} / Chain Max: ${deadPP.maxChain}`;
         $('goTitle').style.color = 'var(--accent)';
+        renderVsResult(null, null);
       }
   }
 
@@ -3140,6 +3209,18 @@ function puyoDrawBoard(pp, ctx, nextCtx) {
     }
     if(cur.row >= 1) puyoDrawPuyo(ctx, cur.col*PUYO_TILE, (cur.row-1)*PUYO_TILE, cur.mainColor, PUYO_TILE, 0, 1);
     if(sub.r >= 1) puyoDrawPuyo(ctx, sub.c*PUYO_TILE, (sub.r-1)*PUYO_TILE, cur.subColor, PUYO_TILE, 0, 1);
+  }
+
+  // 危険警告：スライムが天井近くまで積み上がったら赤枠を明滅させる（新機能）
+  if(!pp._gameOverHandled){
+    let inDanger = false;
+    for(let r=0; r<3 && !inDanger; r++){ for(let c=0;c<PUYO_COLS;c++){ if(pp.board[r][c]){ inDanger = true; break; } } }
+    if(inDanger){
+      const pulse = 0.35 + 0.35 * Math.abs(Math.sin(now()/220));
+      ctx.save(); ctx.strokeStyle = `rgba(255,45,45,${pulse.toFixed(2)})`; ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, W-6, H-6); ctx.restore();
+      if(!pp._dangerWarned){ pp._dangerWarned = true; puyoShowNotice(pp, '危険！', '#ff5252'); }
+    } else { pp._dangerWarned = false; }
   }
   
   if(pp.notices) { const nowt = now(); pp.notices = pp.notices.filter(n => n.expire > nowt); }
@@ -3420,7 +3501,7 @@ function stopPuyoGame() {
 }
 
 window.addEventListener('keydown', (e) => {
-  if(!puyoRunning && !puyotetMode) return;
+  if(!puyoRunning) return;
   const keyName = 'Key:' + ((e.key === ' ') ? 'Space' : e.key);
   if(puyoKeyState[keyName]) return; puyoKeyState[keyName] = true;
   
@@ -3449,7 +3530,7 @@ window.addEventListener('keydown', (e) => {
 }, {capture: false});
 
 window.addEventListener('keyup', (e) => {
-  if(!puyoRunning && !puyotetMode) return;
+  if(!puyoRunning) return;
   const keyName = 'Key:' + ((e.key === ' ') ? 'Space' : e.key); puyoKeyState[keyName] = false;
   const act1 = getActionFromBinds(SETTINGS.binds1, keyName); const act2 = getActionFromBinds(SETTINGS.binds2, keyName);
   if(puyoP1) { if(act1==='left') puyoStopRepeat(puyoP1,'left'); if(act1==='right') puyoStopRepeat(puyoP1,'right'); if(act1==='soft') puyoStopRepeat(puyoP1,'soft'); }
