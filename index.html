@@ -111,6 +111,72 @@
             transform: translateY(-1px) scale(0.99);
             background: rgba(255, 255, 255, 0.12);
         }
+
+        /* YouTubeチャンネル登録セクション */
+        .subscribe-section {
+            width: 100%;
+            margin-bottom: 36px;
+            text-align: center;
+        }
+
+        .subscribe-label {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 14px;
+            letter-spacing: 0.05em;
+        }
+
+        /* 赤いグロー（脈動）アニメーション */
+        @keyframes pulse-glow {
+            0%, 100% {
+                box-shadow: 0 4px 20px -2px rgba(255, 0, 51, 0.45), 0 0 0 0 rgba(255, 0, 51, 0.35);
+            }
+            50% {
+                box-shadow: 0 4px 30px -2px rgba(255, 0, 51, 0.65), 0 0 0 8px rgba(255, 0, 51, 0);
+            }
+        }
+
+        .subscribe-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 18px 24px;
+            background: linear-gradient(135deg, #ff0033 0%, #cc0029 100%);
+            color: #ffffff;
+            text-decoration: none;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: 0.03em;
+            box-sizing: border-box;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: pulse-glow 2.4s ease-in-out infinite;
+        }
+
+        .subscribe-btn:hover {
+            transform: translateY(-3px) scale(1.02);
+            filter: brightness(1.1);
+        }
+
+        .subscribe-btn:active {
+            transform: translateY(-1px) scale(0.98);
+        }
+
+        .subscribe-btn svg {
+            width: 22px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .divider {
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+            margin-bottom: 30px;
+        }
     </style>
 </head>
 <body>
@@ -118,10 +184,47 @@
     <div class="container">
         <h1>作成したページ一覧</h1>
 
-        <ul>
+        <div class="subscribe-section" id="subscribe-section">
+            <p class="subscribe-label">応援よろしくお願いします！</p>
+            <a class="subscribe-btn" id="subscribe-btn" href="https://www.youtube.com/@%E3%82%AD%E3%82%BB%E3%83%8EchXeno" target="_blank" rel="noopener noreferrer">
+                <svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+                チャンネル登録する
+            </a>
+        </div>
+
+        <div class="divider" id="divider" style="display: none;"></div>
+
+        <ul id="page-list" style="display: none;">
             <li><a href="tetris.html">Block Slime puzzle</a></li>
             </ul>
     </div>
+
+    <script>
+        (function () {
+            var STORAGE_KEY = 'subscribed_channel_xeno';
+            var subscribeBtn = document.getElementById('subscribe-btn');
+            var subscribeSection = document.getElementById('subscribe-section');
+            var divider = document.getElementById('divider');
+            var list = document.getElementById('page-list');
+
+            function revealList() {
+                divider.style.display = '';
+                list.style.display = '';
+            }
+
+            // すでに登録ボタンを押したことがある場合は、リロードしても即表示
+            if (localStorage.getItem(STORAGE_KEY) === 'true') {
+                revealList();
+            }
+
+            subscribeBtn.addEventListener('click', function () {
+                localStorage.setItem(STORAGE_KEY, 'true');
+                revealList();
+            });
+        })();
+    </script>
 
 </body>
 </html>
