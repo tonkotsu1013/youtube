@@ -26,7 +26,76 @@ db.serialize(() => {
 db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_code TEXT, receiver_code TEXT, group_id INTEGER, message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 db.run(`CREATE TABLE IF NOT EXISTS chat_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, owner_code TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS group_members (group_id INTEGER, user_code TEXT, PRIMARY KEY (group_id, user_code))`);
+
+    // ===== 世界ランキング機能用カラム追加 =====
+    db.run(`ALTER TABLE users ADD COLUMN rating INTEGER DEFAULT 1200`, (err) => {});
+    db.run(`ALTER TABLE users ADD COLUMN wins INTEGER DEFAULT 0`, (err) => {});
+    db.run(`ALTER TABLE users ADD COLUMN losses INTEGER DEFAULT 0`, (err) => {});
+    db.run(`ALTER TABLE users ADD COLUMN win_streak INTEGER DEFAULT 0`, (err) => {});
+    db.run(`ALTER TABLE users ADD COLUMN best_streak INTEGER DEFAULT 0`, (err) => {});
+
+    // ===== どのモードのスコアでも登録できる「世界記録」テーブル =====
+    // mode = ゲームモード名（marathon, time, puyo_marathon 等）、code = ユーザーの固有コード
+    // 1人1モードにつき自己ベストの記録のみを保持する（PRIMARY KEYで自動的に一意化）
+    db.run(`CREATE TABLE IF NOT EXISTS world_records (
+        mode TEXT,
+        code TEXT,
+        name TEXT,
+        value REAL,
+        score INTEGER DEFAULT 0,
+        lines INTEGER DEFAULT 0,
+        time_ms INTEGER DEFAULT 0,
+        lower_is_better INTEGER DEFAULT 0,
+        date DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (mode, code)
+    )`);
 });
+
+// ===== Promise版のDBヘルパー（世界記録登録処理をシンプルに書くため） =====
+function dbGet(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.get(sql, params, (err, row) => err ? reject(err) : resolve(row));
+    });
+}
+function dbAll(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows));
+    });
+}
+function dbRun(sql, params = []) {
+    return new Promise((resolve, reject) => {
+        db.run(sql, params, function (err) { err ? reject(err) : resolve(this); });
+    });
+}
+
+// ===== レーティング(ELO)計算＆更新 =====
+// 対戦結果を受けて勝者・敗者のレーティング、勝敗数、連勝記録を更新し、本人にだけ変動値を通知する
+function updateRatingsAndRecord(winnerCode, loserCode) {
+    if (!winnerCode || !loserCode || winnerCode === loserCode) return;
+    db.get(`SELECT rating, win_streak, best_streak FROM users WHERE code = ?`, [winnerCode], (err, winner) => {
+        db.get(`SELECT rating FROM users WHERE code = ?`, [loserCode], (err2, loser) => {
+            if (!winner || !loser) return;
+            const K = 32;
+            const rw = winner.rating != null ? winner.rating : 1200;
+            const rl = loser.rating != null ? loser.rating : 1200;
+            const expectedW = 1 / (1 + Math.pow(10, (rl - rw) / 400));
+            const newRw = Math.round(rw + K * (1 - expectedW));
+            const newRl = Math.round(rl - K * (1 - expectedW));
+            const newStreak = (winner.win_streak || 0) + 1;
+            const newBest = Math.max(winner.best_streak || 0, newStreak);
+
+            db.run(`UPDATE users SET rating = ?, wins = wins + 1, win_streak = ?, best_streak = ? WHERE code = ?`,
+                [newRw, newStreak, newBest, winnerCode]);
+            db.run(`UPDATE users SET rating = ?, losses = losses + 1, win_streak = 0 WHERE code = ?`,
+                [newRl, loserCode]);
+
+            const winnerSocketId = socketMap[winnerCode];
+            const loserSocketId = socketMap[loserCode];
+            if (winnerSocketId) io.to(winnerSocketId).emit('rating_update', { rating: newRw, delta: newRw - rw, streak: newStreak });
+            if (loserSocketId) io.to(loserSocketId).emit('rating_update', { rating: newRl, delta: newRl - rl, streak: 0 });
+        });
+    });
+}
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
@@ -76,6 +145,7 @@ io.on('connection', (socket) => {
         onlineUsers[socketId] = { code, name, status: 'idle' };
         socketMap[code] = socketId;
         io.emit('friends_data_update'); 
+        io.emit('online_count', Object.keys(socketMap).length);
     }
 
     // 2. フレンド取得
@@ -84,7 +154,7 @@ io.on('connection', (socket) => {
         if (!user) return;
         
         db.all(`
-            SELECT u.code, u.name, f.status, f.is_favorite 
+            SELECT u.code, u.name, u.rating, u.wins, u.losses, f.status, f.is_favorite 
             FROM friends f 
             JOIN users u ON (f.friend_code = u.code AND f.user_code = ?) 
                          OR (f.user_code = u.code AND f.friend_code = ? AND f.status = 'pending')
@@ -92,11 +162,115 @@ io.on('connection', (socket) => {
             if (err) return;
             const friendsList = rows.map(r => ({
                 code: r.code, name: r.name, status: r.status, is_favorite: r.is_favorite,
+                rating: r.rating != null ? r.rating : 1200, wins: r.wins || 0, losses: r.losses || 0,
                 isOnline: !!socketMap[r.code],
                 currentActivity: socketMap[r.code] ? onlineUsers[socketMap[r.code]].status : 'offline'
             }));
             socket.emit('friends_data', friendsList);
         });
+    });
+
+    // ===== どのモードでも記録を世界ランキングに登録 =====
+    // data: { mode, value, score, lines, timeMs, lowerIsBetter }
+    // value: 比較に使う数値（スコア系は高いほど良い / タイムアタック系は低いほど良い）
+    socket.on('register_world_record', async (data, callback) => {
+        try {
+            const user = onlineUsers[socket.id];
+            if (!user) return callback && callback({ success: false, message: 'ログインしてから登録してください。' });
+
+            const { mode, value, score, lines, timeMs, lowerIsBetter } = data || {};
+            if (!mode || typeof value !== 'number' || !isFinite(value)) {
+                return callback && callback({ success: false, message: '記録データが不正です。' });
+            }
+            const dir = lowerIsBetter ? 1 : 0;
+
+            const existing = await dbGet(`SELECT value FROM world_records WHERE mode = ? AND code = ?`, [mode, user.code]);
+            const isBetter = !existing || (lowerIsBetter ? value < existing.value : value > existing.value);
+
+            if (isBetter) {
+                await dbRun(`INSERT INTO world_records (mode, code, name, value, score, lines, time_ms, lower_is_better, date)
+                             VALUES (?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
+                             ON CONFLICT(mode, code) DO UPDATE SET
+                                name = excluded.name, value = excluded.value, score = excluded.score,
+                                lines = excluded.lines, time_ms = excluded.time_ms,
+                                lower_is_better = excluded.lower_is_better, date = CURRENT_TIMESTAMP`,
+                    [mode, user.code, user.name, value, score || 0, lines || 0, timeMs || 0, dir]);
+            }
+
+            const bestValue = isBetter ? value : existing.value;
+            const cmpSql = lowerIsBetter ? 'value < ?' : 'value > ?';
+            const betterCount = await dbGet(`SELECT COUNT(*) as cnt FROM world_records WHERE mode = ? AND ${cmpSql}`, [mode, bestValue]);
+            const totalCount = await dbGet(`SELECT COUNT(*) as cnt FROM world_records WHERE mode = ?`, [mode]);
+            const rank = (betterCount ? betterCount.cnt : 0) + 1;
+
+            callback && callback({ success: true, rank, total: totalCount ? totalCount.cnt : rank, isNewRecord: isBetter, bestValue });
+        } catch (e) {
+            console.error('register_world_record error:', e);
+            callback && callback({ success: false, message: '登録中にエラーが発生しました。' });
+        }
+    });
+
+    // ===== 特定モードの世界記録ランキングを取得 =====
+    socket.on('get_world_ranking', async (data) => {
+        try {
+            const user = onlineUsers[socket.id];
+            const { mode, lowerIsBetter } = data || {};
+            if (!mode) return;
+            const orderSql = lowerIsBetter ? 'ASC' : 'DESC';
+
+            const top = await dbAll(
+                `SELECT code, name, value, score, lines, time_ms, date FROM world_records WHERE mode = ? ORDER BY value ${orderSql} LIMIT 100`,
+                [mode]
+            );
+            const ranked = top.map((r, i) => ({ rank: i + 1, ...r }));
+
+            let myRank = null, myData = null;
+            if (user) {
+                const me = await dbGet(`SELECT code, name, value, score, lines, time_ms, date FROM world_records WHERE mode = ? AND code = ?`, [mode, user.code]);
+                if (me) {
+                    const cmpSql = lowerIsBetter ? 'value < ?' : 'value > ?';
+                    const betterCount = await dbGet(`SELECT COUNT(*) as cnt FROM world_records WHERE mode = ? AND ${cmpSql}`, [mode, me.value]);
+                    myRank = (betterCount ? betterCount.cnt : 0) + 1;
+                    myData = me;
+                }
+            }
+            socket.emit('world_ranking_data', { mode, top: ranked, myRank, myData, total: ranked.length });
+        } catch (e) {
+            console.error('get_world_ranking error:', e);
+        }
+    });
+
+    // ===== 世界ランキング取得 =====
+    socket.on('get_ranking', () => {
+        const user = onlineUsers[socket.id];
+        db.all(`SELECT code, name, rating, wins, losses, best_streak FROM users ORDER BY rating DESC, wins DESC LIMIT 100`, (err, rows) => {
+            const top = (rows || []).map((r, i) => ({ rank: i + 1, code: r.code, name: r.name, rating: r.rating != null ? r.rating : 1200, wins: r.wins || 0, losses: r.losses || 0, best_streak: r.best_streak || 0 }));
+            const onlineCount = Object.keys(socketMap).length;
+
+            const respond = (myRank, myData) => socket.emit('ranking_data', { top, myRank, myData, onlineCount });
+
+            if (!user) return respond(null, null);
+            db.get(`SELECT code, name, rating, wins, losses, best_streak FROM users WHERE code = ?`, [user.code], (err2, me) => {
+                if (!me) return respond(null, null);
+                const rating = me.rating != null ? me.rating : 1200;
+                db.get(`SELECT COUNT(*) as cnt FROM users WHERE rating > ?`, [rating], (err3, cntRow) => {
+                    const myRank = (cntRow ? cntRow.cnt : 0) + 1;
+                    respond(myRank, { code: me.code, name: me.name, rating, wins: me.wins || 0, losses: me.losses || 0, best_streak: me.best_streak || 0 });
+                });
+            });
+        });
+    });
+
+    // ===== 対戦中のリアクション（絵文字）送信 =====
+    socket.on('send_emote', (data) => {
+        const user = onlineUsers[socket.id];
+        if (!user) return;
+        const { matchId, emote } = data || {};
+        const match = activeMatches[matchId];
+        if (!match || (match.p1 !== user.code && match.p2 !== user.code)) return;
+        const targetCode = (match.p1 === user.code) ? match.p2 : match.p1;
+        const targetSocketId = socketMap[targetCode];
+        if (targetSocketId) io.to(targetSocketId).emit('receive_emote', { emote, from: user.name });
     });
 
     socket.on('toggle_favorite', (targetCode) => {
@@ -285,6 +459,9 @@ io.on('connection', (socket) => {
                     });
             }
 
+            // 1.5 世界ランキング用のレーティングを更新
+            updateRatingsAndRecord(winnerCode, loserCode);
+
             // 2. 勝者に 'win' のシグナルを送信
             if (winnerSocketId) {
                 io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_game_over' });
@@ -323,6 +500,7 @@ io.on('connection', (socket) => {
                         db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
                             [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
                     }
+                    updateRatingsAndRecord(winnerCode, user.code);
                     if (winnerSocketId) {
                         io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_left' });
                         if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
@@ -574,6 +752,7 @@ io.on('connection', (socket) => {
                         db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
                             [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
                     }
+                    updateRatingsAndRecord(winnerCode, user.code);
                     if (winnerSocketId) {
                         io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'disconnect' });
                         if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
@@ -585,6 +764,7 @@ io.on('connection', (socket) => {
             delete socketMap[user.code];
             delete onlineUsers[socket.id];
             io.emit('friends_data_update');
+            io.emit('online_count', Object.keys(socketMap).length);
         }
     });
 });
