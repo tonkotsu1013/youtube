@@ -539,6 +539,7 @@ function updateLangUI() {
         <div id="matchingStatusText" style="text-align:center; color:var(--accent2); font-weight:bold; font-size: 16px; display:none;">🔍 検索中...</div>
 <button id="openChatBtn" class="btn secondary" style="height:50px; font-size:18px; border-color:var(--accent2); color:var(--accent2);">💬 チャット</button>
 <button id="openRankingBtn" class="btn secondary" style="height:50px; font-size:18px; border-color:#ffd54f; color:#ffd54f;">🏆 世界ランキング</button>
+<button id="openWorldRecordBtn" class="btn secondary" style="height:50px; font-size:18px; border-color:#8effea; color:#8effea;">🌍 モード別世界記録</button>
 <div id="myRatingCard" style="background:rgba(0,0,0,0.3); border-radius:10px; padding:10px; text-align:center; display:none;">
   <div id="myRatingTier" style="font-size:13px; font-weight:bold;">-</div>
   <div id="myRatingNum" style="font-size:22px; font-weight:900; color:#ffd54f;">-</div>
@@ -569,8 +570,11 @@ function updateLangUI() {
       <h3 id="wrModeTitle" style="margin:0; color:#ffd54f;">🌍 世界記録ランキング</h3>
       <button class="btn secondary" onclick="$('worldRecordRankingOverlay').classList.remove('show');">閉じる</button>
     </div>
+    <div style="margin-bottom:12px;">
+      <select id="wrModeSelect" style="width:100%; padding:8px; border-radius:8px; background:rgba(0,0,0,0.4); color:#fff; border:1px solid rgba(255,255,255,0.2); font-size:14px;"></select>
+    </div>
     <div id="wrMyRankBanner" style="background:linear-gradient(90deg, rgba(255,213,79,0.15), rgba(255,213,79,0.03)); border:1px solid rgba(255,213,79,0.3); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:none; font-weight:bold;"></div>
-    <div id="wrListArea" style="height:400px; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:8px;"></div>
+    <div id="wrListArea" style="height:360px; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:8px;"></div>
   </div>
 </div>
 
@@ -1257,6 +1261,8 @@ function openWorldRanking(m) {
     if (!window.socket) { alert('オンラインメニューでログインしてから利用してください'); return; }
     const lowerBetter = isLowerBetterMode(m);
     $('wrModeTitle').textContent = `🌍 世界記録ランキング - ${modeDisplayName(m)}`;
+    const sel = $('wrModeSelect');
+    if (sel) sel.value = m;
     window.socket.emit('get_world_ranking', { mode: m, lowerIsBetter: lowerBetter });
     $('worldRecordRankingOverlay').classList.add('show');
 }
@@ -3645,10 +3651,13 @@ function puyoHandleGameOver(deadPP) {
   let text = '';
   
   if (window.isOnlineMatch) {
-      // isOnlineMatchの場合、この関数が呼ばれるのは基本自分が負けたとき
-      title = "YOU LOSE...";
-      text = "あなたのフィールドが積み上がりました";
-      $('goTitle').style.color = "#ff2b2b";
+      // isOnlineMatchの場合でも、実際に積み上がったのが自分(puyoP1)か相手(puyoP2)かで
+      // 表示を出し分ける（従来は常に「YOU LOSE」固定になっており、稀な競合時に
+      // 誤った結果が一瞬表示されてしまうバグがあったため修正）。
+      const iLost = (deadPP === puyoP1);
+      title = iLost ? "YOU LOSE..." : "YOU WIN!";
+      text = iLost ? "あなたのフィールドが積み上がりました" : "対戦相手のフィールドが積み上がりました";
+      $('goTitle').style.color = iLost ? "#ff2b2b" : "#ffeb3b";
       renderVsResult(null, null);
   } else {
       const opponent = getOpponentOf(deadPP);
@@ -4400,6 +4409,52 @@ function initOnline() {
     $('onlineName').value = localStorage.getItem('puyotet_online_name') || '';
     $('onlineCode').value = localStorage.getItem('puyotet_online_code') || '';
 
+    // ログイン処理本体（ボタン押下・自動再接続の両方から呼ぶ）
+    function doLogin(name, code, { silent = false } = {}) {
+        if (!name || !code) return;
+        socket.emit('login', { code, name }, (res) => {
+            if (res && res.success) {
+                localStorage.setItem('puyotet_online_name', name);
+                localStorage.setItem('puyotet_online_code', code);
+                $('loginStatusText').textContent = 'ログイン済み: ' + name;
+                $('loginErrorText').textContent = '';
+                socket.emit('get_friends');
+                socket.emit('get_ranking');
+            } else if (!silent) {
+                $('loginErrorText').style.color = '#ff4d4d';
+                $('loginErrorText').textContent = res ? res.message : '接続に失敗しました';
+            }
+        });
+    }
+
+    // 通信が一瞬途切れて再接続した場合に備え、保存済みの認証情報があれば
+    // 自動的にログインし直す（対戦中の切断誤判定を防ぐための再接続対応）。
+    // 初回接続時にも保存済み情報があれば自動ログインされるので、
+    // 毎回ログインボタンを押す必要がなくなるメリットもある。
+    socket.on('connect', () => {
+        const savedName = localStorage.getItem('puyotet_online_name');
+        const savedCode = localStorage.getItem('puyotet_online_code');
+        if (savedName && savedCode) doLogin(savedName, savedCode, { silent: true });
+    });
+
+    // 対戦相手の接続が一時的に切れた／復帰した際の通知
+    socket.on('opponent_connection_wait', () => {
+        const target = (puyoP2 && puyoRunning) ? puyoP2 : p2;
+        if (target && typeof showCenterNotice === 'function' && (target === p2)) {
+            showCenterNotice(p2, '相手の接続待ち…', { color: '#ffd54f', time: 4000 });
+        } else if (target && typeof puyoShowNotice === 'function') {
+            puyoShowNotice(target, '相手の接続待ち…', '#ffd54f');
+        }
+    });
+    socket.on('opponent_reconnected', () => {
+        const target = (puyoP2 && puyoRunning) ? puyoP2 : p2;
+        if (target && typeof showCenterNotice === 'function' && (target === p2)) {
+            showCenterNotice(p2, '相手が再接続しました', { color: '#7bd389', time: 2000 });
+        } else if (target && typeof puyoShowNotice === 'function') {
+            puyoShowNotice(target, '相手が再接続しました', '#7bd389');
+        }
+    });
+
     // 保存ボタン
     $('saveProfileBtn').onclick = () => {
         localStorage.setItem('puyotet_online_name', $('onlineName').value.trim());
@@ -4413,20 +4468,7 @@ function initOnline() {
         const name = $('onlineName').value.trim();
         const code = $('onlineCode').value.trim();
         if(!name || !code) return alert('名前とコードを入力してください');
-        
-        socket.emit('login', { code, name }, (res) => {
-            if(res.success) {
-                localStorage.setItem('puyotet_online_name', name);
-                localStorage.setItem('puyotet_online_code', code);
-                $('loginStatusText').textContent = 'ログイン済み: ' + name;
-                $('loginErrorText').textContent = '';
-                socket.emit('get_friends');
-                socket.emit('get_ranking');
-            } else {
-                $('loginErrorText').style.color = '#ff4d4d';
-                $('loginErrorText').textContent = res.message; 
-            }
-        });
+        doLogin(name, code, { silent: false });
     };
 
     $('addFriendBtn').onclick = () => {
@@ -4448,6 +4490,24 @@ function initOnline() {
     $('openRankingBtn').onclick = () => {
         socket.emit('get_ranking');
         $('rankingOverlay').classList.add('show');
+    };
+
+    // モードを自由に選んで世界記録ランキングを閲覧できるセレクトボックスを用意
+    (function setupWorldRecordModeSelect() {
+        const sel = $('wrModeSelect');
+        if (!sel || sel.dataset.built) return;
+        sel.dataset.built = '1';
+        Object.keys(MODE_LABELS).forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m; opt.textContent = MODE_LABELS[m];
+            sel.appendChild(opt);
+        });
+        sel.onchange = () => openWorldRanking(sel.value);
+    })();
+
+    $('openWorldRecordBtn').onclick = () => {
+        const sel = $('wrModeSelect');
+        openWorldRanking(sel.value || 'marathon');
     };
 
     socket.on('online_count', (n) => {
