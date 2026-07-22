@@ -23,6 +23,11 @@ db.serialize(() => {
     db.run(`CREATE TABLE IF NOT EXISTS match_history (id INTEGER PRIMARY KEY AUTOINCREMENT, p1_code TEXT, p2_code TEXT, p1_type TEXT, p2_type TEXT, date DATETIME DEFAULT CURRENT_TIMESTAMP)`);
     // 勝敗記録用のカラムを追加
     db.run(`ALTER TABLE match_history ADD COLUMN winner_code TEXT`, (err) => {}); 
+    // 対戦を一意に特定するためのキー（サーバー内部のmatchId文字列）。
+    // これがないと「p1_code/p2_code一致 かつ winner_code IS NULL の最新行」という
+    // あいまいな検索に頼ることになり、同じ相手と連戦した際に別の試合の勝敗を
+    // 誤って上書きしてしまうことがあった。
+    db.run(`ALTER TABLE match_history ADD COLUMN match_key TEXT`, (err) => {});
 db.run(`CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, sender_code TEXT, receiver_code TEXT, group_id INTEGER, message TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)`);
 db.run(`CREATE TABLE IF NOT EXISTS chat_groups (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, owner_code TEXT)`);
     db.run(`CREATE TABLE IF NOT EXISTS group_members (group_id INTEGER, user_code TEXT, PRIMARY KEY (group_id, user_code))`);
@@ -105,6 +110,40 @@ const socketMap = {};
 let matchmakingQueue = [];
 const activeMatches = {}; 
 
+const RECONNECT_GRACE_MS = 20000; // 切断してもすぐには敗北にせず、再接続を待つ猶予時間(ms)
+
+// 対戦を一つの結果として確定させる共通処理。
+// matchId・winnerCode・loserCodeを渡すだけで、DB更新・レーティング更新・
+// 両者への通知・ステータスリセット・activeMatchesの後片付けまで一括で行う。
+// game_over / return_to_lobby / disconnect(猶予後) の3箇所から呼ばれる。
+function recordMatchResult(matchId, match, winnerCode, loserCode, winReason, loseReason) {
+    if (!match || match.gameOverHandled) return;
+    match.gameOverHandled = true;
+
+    const winnerSocketId = socketMap[winnerCode];
+    const loserSocketId = socketMap[loserCode];
+
+    // match_key（matchId文字列そのもの）で一意に対戦を特定してUPDATEするので、
+    // 同じ相手と連戦した場合でも別の試合の結果を誤って上書きすることがない。
+    db.run(`UPDATE match_history SET winner_code = ? WHERE match_key = ?`, [winnerCode, matchId], (err) => {
+        if (err) console.error('UPDATE winner_code error:', err);
+    });
+
+    updateRatingsAndRecord(winnerCode, loserCode);
+
+    if (winnerSocketId) {
+        io.to(winnerSocketId).emit('game_result', { result: 'win', reason: winReason });
+        if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
+    }
+    if (loserSocketId) {
+        io.to(loserSocketId).emit('game_result', { result: 'lose', reason: loseReason });
+        if (onlineUsers[loserSocketId]) onlineUsers[loserSocketId].status = 'idle';
+    }
+
+    delete activeMatches[matchId];
+    io.emit('friends_data_update');
+}
+
 io.on('connection', (socket) => {
 // 1. 厳密なログイン処理
     socket.on('login', (data, callback) => {
@@ -144,6 +183,16 @@ io.on('connection', (socket) => {
     function setupUserStatus(socketId, code, name) {
         onlineUsers[socketId] = { code, name, status: 'idle' };
         socketMap[code] = socketId;
+
+        // 再接続の場合、まだ進行中のマッチに参加していればステータスを復元する
+        for (const mId in activeMatches) {
+            const m = activeMatches[mId];
+            if ((m.p1 === code || m.p2 === code) && !m.gameOverHandled) {
+                onlineUsers[socketId].status = 'playing';
+                break;
+            }
+        }
+
         io.emit('friends_data_update'); 
         io.emit('online_count', Object.keys(socketMap).length);
     }
@@ -390,8 +439,8 @@ io.on('connection', (socket) => {
         if (match.p1Ready && match.p2Ready) {
             // DBにマッチ情報を初期登録 (winner_codeはNULL) - startedAtを記録しておく
             match.startedAt = Date.now();
-            db.run(`INSERT INTO match_history (p1_code, p2_code, p1_type, p2_type) VALUES (?, ?, ?, ?)`, 
-                   [match.p1, match.p2, match.p1Type, match.p2Type], function(err) {
+            db.run(`INSERT INTO match_history (p1_code, p2_code, p1_type, p2_type, match_key) VALUES (?, ?, ?, ?, ?)`, 
+                   [match.p1, match.p2, match.p1Type, match.p2Type, matchId], function(err) {
                 if(!err) {
                     match.dbId = this.lastID;
                 } else {
@@ -430,54 +479,11 @@ io.on('connection', (socket) => {
         
         const matchId = data.matchId;
         const match = activeMatches[matchId];
-        
-        if (match) {
-            // 既に処理済み（両者からのrace condition防止）
-            if (match.gameOverHandled) return;
-            match.gameOverHandled = true;
+        if (!match) return;
 
-            const loserCode = user.code;
-            const winnerCode = (match.p1 === loserCode) ? match.p2 : match.p1;
-            
-            const winnerSocketId = socketMap[winnerCode];
-            const loserSocketId = socketMap[loserCode];
-
-            // 1. データベースの match_history に勝者を記録
-            // dbIdが設定済みなら直接UPDATE、未設定ならコードで検索してUPDATE
-            const doUpdate = (id) => {
-                db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id], (err) => {
-                    if (err) console.error('UPDATE winner_code error:', err);
-                });
-            };
-            if (match.dbId) {
-                doUpdate(match.dbId);
-            } else {
-                // dbIdがまだ設定されていない場合はコードで最新レコードを探す
-                db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
-                    [match.p1, match.p2], (err, row) => {
-                        if (row) doUpdate(row.id);
-                    });
-            }
-
-            // 1.5 世界ランキング用のレーティングを更新
-            updateRatingsAndRecord(winnerCode, loserCode);
-
-            // 2. 勝者に 'win' のシグナルを送信
-            if (winnerSocketId) {
-                io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_game_over' });
-                if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
-            }
-            
-            // 3. 敗者に 'lose' のシグナルを送信（確認用。ローカルでは既に表示済み）
-            if (loserSocketId) {
-                io.to(loserSocketId).emit('game_result', { result: 'lose', reason: 'game_over' });
-                if (onlineUsers[loserSocketId]) onlineUsers[loserSocketId].status = 'idle';
-            }
-
-            // 4. マッチを終了して削除
-            delete activeMatches[matchId];
-            io.emit('friends_data_update'); // ステータスをidleに更新
-        }
+        const loserCode = user.code;
+        const winnerCode = (match.p1 === loserCode) ? match.p2 : match.p1;
+        recordMatchResult(matchId, match, winnerCode, loserCode, 'opponent_game_over', 'game_over');
     });
     
     socket.on('return_to_lobby', () => {
@@ -491,21 +497,8 @@ io.on('connection', (socket) => {
                 const match = activeMatches[matchId];
                 if (match.p1 === user.code || match.p2 === user.code) {
                     if (match.gameOverHandled) { delete activeMatches[matchId]; continue; }
-                    match.gameOverHandled = true;
                     const winnerCode = (match.p1 === user.code) ? match.p2 : match.p1;
-                    const winnerSocketId = socketMap[winnerCode];
-                    const doUp = (id) => db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id]);
-                    if (match.dbId) { doUp(match.dbId); }
-                    else {
-                        db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
-                            [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
-                    }
-                    updateRatingsAndRecord(winnerCode, user.code);
-                    if (winnerSocketId) {
-                        io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'opponent_left' });
-                        if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
-                    }
-                    delete activeMatches[matchId];
+                    recordMatchResult(matchId, match, winnerCode, user.code, 'opponent_left', 'left_match');
                 }
             }
             
@@ -737,31 +730,39 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const user = onlineUsers[socket.id];
         if (user) {
+            const disconnectedCode = user.code;
             matchmakingQueue = matchmakingQueue.filter(id => id !== socket.id);
             
             for (const matchId in activeMatches) {
                 const match = activeMatches[matchId];
-                if (match.p1 === user.code || match.p2 === user.code) {
+                if (match.p1 === disconnectedCode || match.p2 === disconnectedCode) {
                     if (match.gameOverHandled) { delete activeMatches[matchId]; continue; }
-                    match.gameOverHandled = true;
-                    const winnerCode = (match.p1 === user.code) ? match.p2 : match.p1;
-                    const winnerSocketId = socketMap[winnerCode];
-                    const doUp = (id) => db.run(`UPDATE match_history SET winner_code = ? WHERE id = ?`, [winnerCode, id]);
-                    if (match.dbId) { doUp(match.dbId); }
-                    else {
-                        db.get(`SELECT id FROM match_history WHERE p1_code = ? AND p2_code = ? AND winner_code IS NULL ORDER BY id DESC LIMIT 1`,
-                            [match.p1, match.p2], (err, row) => { if (row) doUp(row.id); });
+
+                    const opponentCode = (match.p1 === disconnectedCode) ? match.p2 : match.p1;
+                    const opponentSocketId = socketMap[opponentCode];
+                    if (opponentSocketId) {
+                        io.to(opponentSocketId).emit('opponent_connection_wait', { graceMs: RECONNECT_GRACE_MS });
                     }
-                    updateRatingsAndRecord(winnerCode, user.code);
-                    if (winnerSocketId) {
-                        io.to(winnerSocketId).emit('game_result', { result: 'win', reason: 'disconnect' });
-                        if (onlineUsers[winnerSocketId]) onlineUsers[winnerSocketId].status = 'idle';
-                    }
-                    delete activeMatches[matchId];
+
+                    // すぐに敗北扱いにはせず、一定時間だけ再接続を待つ。
+                    // 通信が一瞬途切れただけで敗北扱いになってしまうのを防ぐため。
+                    setTimeout(() => {
+                        const stillActive = activeMatches[matchId];
+                        if (!stillActive || stillActive.gameOverHandled) return;
+
+                        if (socketMap[disconnectedCode]) {
+                            // 猶予時間内に再ログイン（再接続）できていたので、試合を続行する
+                            if (opponentSocketId) io.to(opponentSocketId).emit('opponent_reconnected');
+                            return;
+                        }
+
+                        // 猶予時間内に再接続がなければ、正式に切断負けとして確定する
+                        recordMatchResult(matchId, stillActive, opponentCode, disconnectedCode, 'disconnect', 'disconnect');
+                    }, RECONNECT_GRACE_MS);
                 }
             }
 
-            delete socketMap[user.code];
+            delete socketMap[disconnectedCode];
             delete onlineUsers[socket.id];
             io.emit('friends_data_update');
             io.emit('online_count', Object.keys(socketMap).length);
