@@ -244,16 +244,21 @@ function updateLangUI() {
             <option value="purify">Purify</option>
             <option value="vs_local">VS Brock (2P Local)</option>
             <option value="vs_ai">VS Brock (1P vs AI)</option>
+            <option value="ai_vs_ai">🤖 AI vs AI (観戦)</option>
+            <option value="ai_solo">🤖 AI 1人プレイ (観戦)</option>
           </optgroup>
           <optgroup label="── スライム パズル ──">
             <option value="puyo_marathon">Slime Marathon</option>
             <option value="puyo_free_marathon">Slime Free Marathon</option>
             <option value="puyo_vs_local">VS Slime (2P Local)</option>
             <option value="puyo_vs_ai">VS Slime (1P vs AI)</option>
+            <option value="puyo_ai_vs_ai">🤖 AI vs AI Slime (観戦)</option>
+            <option value="puyo_ai_solo">🤖 AI 1人プレイ Slime (観戦)</option>
           </optgroup>
           <optgroup label="── スライムVSブロック ──">
             <option value="puyotet_vs_local">Slime VS Block(2P Local)</option>
             <option value="puyotet_vs_ai">SlimeTet VS Block(1P vs AI)</option>
+            <option value="puyotet_ai_vs_ai">🤖 AI vs AI SlimeTet (観戦)</option>
           </optgroup>
           <optgroup label="── BALANCE (PHYSICS) ──">
             <option value="balance">Balance Mode（物理バランス）※開発中</option>
@@ -394,6 +399,15 @@ function updateLangUI() {
             </label>
           </div>
 
+          <div style="margin-top:10px;padding:10px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06)">
+            <label style="display:flex;align-items:center;gap:8px;font-weight:800">
+              <input id="optAiLearn" type="checkbox"/> 🧠 AI 自己学習を有効にする
+            </label>
+            <div class="infoSmall" style="margin-top:4px">オンにすると、対戦のたびにAIが結果を見て評価パラメータを少しずつ自己改良します。成果はリロードしても消えません。</div>
+            <div class="infoSmall" style="margin-top:6px" id="aiLearnStats">世代: 0 ／ 対戦数: 0 ／ ベストスコア: -</div>
+            <button id="aiLearnResetBtn" class="btn secondary" style="margin-top:6px;padding:4px 10px;font-size:12px">学習内容をリセット</button>
+          </div>
+
           <div style="margin-top:6px">
             <div style="font-weight:700">Movement timing (ms)</div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
@@ -432,6 +446,13 @@ function updateLangUI() {
       <div style="display:flex;gap:8px;justify-content:center;margin-top:12px">
         <button id="goRetry" class="bigBtn" data-i18n="retry">Retry</button>
         <button id="goBack" class="btn secondary" data-i18n="title">Back to Title</button>
+      </div>
+      <div id="worldRecordArea" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid rgba(255,255,255,0.1);">
+        <div style="display:flex;gap:8px;justify-content:center;">
+          <button id="registerWorldRecordBtn" class="btn secondary" style="border-color:#ffd54f; color:#ffd54f; font-size:14px;">🌍 世界記録に登録</button>
+          <button id="viewWorldRankingBtn" class="btn secondary" style="border-color:var(--accent2); color:var(--accent2); font-size:14px;">📊 世界ランキングを見る</button>
+        </div>
+        <div id="worldRecordResult" style="margin-top:10px; font-weight:bold; color:#ffd54f; font-size:15px;"></div>
       </div>
     </div>
   </div>
@@ -485,7 +506,10 @@ function updateLangUI() {
 <div id="onlineMenuOverlay" class="overlay">
   <div class="onlineCard">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-      <div class="titleBig" style="font-size:28px; color:#d66aff;">ONLINE MODE</div>
+      <div style="display:flex; align-items:baseline; gap:14px;">
+        <div class="titleBig" style="font-size:28px; color:#d66aff;">ONLINE MODE</div>
+        <span id="onlineCountText" style="font-size:13px; color:#7bd389; font-weight:bold;">🌐 オンライン: -人</span>
+      </div>
       <button onclick="$('onlineMenuOverlay').classList.remove('show'); $('titleOverlay').classList.add('show');" class="btn secondary">戻る</button>
     </div>
 
@@ -514,6 +538,12 @@ function updateLangUI() {
         <button id="randomMatchBtn" class="bigBtn" style="height:70px; font-size:20px; box-shadow: 0 4px 15px rgba(123, 211, 137, 0.4);">ランダムマッチ</button>
         <div id="matchingStatusText" style="text-align:center; color:var(--accent2); font-weight:bold; font-size: 16px; display:none;">🔍 検索中...</div>
 <button id="openChatBtn" class="btn secondary" style="height:50px; font-size:18px; border-color:var(--accent2); color:var(--accent2);">💬 チャット</button>
+<button id="openRankingBtn" class="btn secondary" style="height:50px; font-size:18px; border-color:#ffd54f; color:#ffd54f;">🏆 世界ランキング</button>
+<div id="myRatingCard" style="background:rgba(0,0,0,0.3); border-radius:10px; padding:10px; text-align:center; display:none;">
+  <div id="myRatingTier" style="font-size:13px; font-weight:bold;">-</div>
+  <div id="myRatingNum" style="font-size:22px; font-weight:900; color:#ffd54f;">-</div>
+  <div id="myRatingWL" style="font-size:12px; color:#aaa;">- 勝 - 敗</div>
+</div>
       </div>
     </div>
 
@@ -521,6 +551,32 @@ function updateLangUI() {
 
   </div>
 </div>
+
+<div id="rankingOverlay" class="overlay" style="z-index: 10007;">
+  <div class="onlineCard" style="width:600px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 style="margin:0; color:#ffd54f;">🏆 世界ランキング</h3>
+      <button class="btn secondary" onclick="$('rankingOverlay').classList.remove('show');">閉じる</button>
+    </div>
+    <div id="myRankBanner" style="background:linear-gradient(90deg, rgba(255,213,79,0.15), rgba(255,213,79,0.03)); border:1px solid rgba(255,213,79,0.3); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:none; font-weight:bold;"></div>
+    <div id="rankingListArea" style="height:400px; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:8px;"></div>
+  </div>
+</div>
+
+<div id="worldRecordRankingOverlay" class="overlay" style="z-index: 10008;">
+  <div class="onlineCard" style="width:600px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <h3 id="wrModeTitle" style="margin:0; color:#ffd54f;">🌍 世界記録ランキング</h3>
+      <button class="btn secondary" onclick="$('worldRecordRankingOverlay').classList.remove('show');">閉じる</button>
+    </div>
+    <div id="wrMyRankBanner" style="background:linear-gradient(90deg, rgba(255,213,79,0.15), rgba(255,213,79,0.03)); border:1px solid rgba(255,213,79,0.3); border-radius:10px; padding:10px 14px; margin-bottom:14px; display:none; font-weight:bold;"></div>
+    <div id="wrListArea" style="height:400px; overflow-y:auto; background:rgba(0,0,0,0.3); border-radius:8px; padding:8px;"></div>
+  </div>
+</div>
+
+<div id="ratingToast" style="position:fixed; top:80px; left:50%; transform:translateX(-50%) translateY(-20px); opacity:0; transition: all 0.4s ease; z-index:20000; padding:14px 28px; border-radius:12px; font-weight:900; font-size:18px; text-align:center; pointer-events:none; box-shadow:0 8px 30px rgba(0,0,0,0.5);"></div>
+
+<div id="emoteBar" style="position:fixed; bottom:100px; left:50%; transform:translateX(-50%); display:none; gap:8px; z-index:1600; background:rgba(0,0,0,0.6); padding:8px; border-radius:14px; backdrop-filter: blur(4px);"></div>
 
 <div id="historyOverlay" class="overlay" style="z-index: 10005;">
     <div class="onlineCard" style="width:550px;">
@@ -812,8 +868,74 @@ let SETTINGS = {
   rotDas: parseInt(localStorage.getItem('tetris_rotDas')||'200'), rotArr: parseInt(localStorage.getItem('tetris_rotArr')||'80'),
   showRanking: localStorage.getItem('tetris_showRank') !== '0',
   aiLevel: localStorage.getItem('tetris_ai_level') || '5',
-  timeLineGoal: parseInt(localStorage.getItem('tetris_time_goal') || '50')
+  timeLineGoal: parseInt(localStorage.getItem('tetris_time_goal') || '50'),
+  aiLearn: localStorage.getItem('tetris_ai_learn') === '1'
 };
+
+/* ---------- AI 自己学習（学習を有効にした場合、対戦のたびに評価パラメータを
+   少しずつ変異させ、より良い結果が出た変異を採用していく簡易的な自己改良の仕組み。
+   学習の成果は localStorage に保存されるため、リロードしても引き継がれる） ---------- */
+const AI_LEARN_KEY = 'tetris_ai_learn_state';
+function defaultAILearnWeights(){
+  return { holeW:1, bumpW:1, wellFillPenalty:1, wellDepthBonus:1, ceilingPenalty:1, holesResolvedBonus:1, tetrisBonus:1, tspinBonus:1, lineAvoidBias:1, wellCountPenalty:1, heightRangePenalty:1 };
+}
+function loadAILearnState(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(AI_LEARN_KEY));
+    if(raw && raw.bestWeights){
+      raw.bestWeights = Object.assign(defaultAILearnWeights(), raw.bestWeights);
+      return raw;
+    }
+  }catch(e){}
+  return { generation:0, gamesPlayed:0, bestFitness:-Infinity, bestWeights: defaultAILearnWeights() };
+}
+function saveAILearnState(){ try{ localStorage.setItem(AI_LEARN_KEY, JSON.stringify(AI_LEARN_STATE)); }catch(e){} }
+let AI_LEARN_STATE = loadAILearnState();
+
+function mutateAILearnWeights(base, magnitude){
+  magnitude = magnitude || 0.15;
+  const out = {};
+  for(const k in base){
+    const delta = (Math.random()*2 - 1) * magnitude;
+    out[k] = Math.max(0.35, Math.min(2.6, base[k] * (1 + delta)));
+  }
+  return out;
+}
+
+/* AI操作のゲームが始まるタイミングで呼ぶ。学習が有効なら、現時点のベスト重みを
+   少し変異させた「試行版」の重みをそのプレイヤーに割り当てて今回の対戦で試す。
+   学習が無効なら、学習による補正は一切かけずデフォルトの評価のまま動作させる。 */
+function aiLearnAssignTrial(player){
+  if(!player || !player.isAI) return;
+  if(!SETTINGS.aiLearn){ player.aiLearnWeights = null; return; }
+  player.aiLearnWeights = mutateAILearnWeights(AI_LEARN_STATE.bestWeights);
+}
+
+/* 対戦終了時に呼ぶ。今回の試行の「成績」を、前回までのベストと比較し、
+   より良ければその変異後の重みを新しいベストとして採用する（=自己改良）。 */
+function aiLearnRecordResult(player){
+  if(!player || !player.isAI || !SETTINGS.aiLearn || !player.aiLearnWeights) return;
+  AI_LEARN_STATE.gamesPlayed = (AI_LEARN_STATE.gamesPlayed || 0) + 1;
+  const survivalSeconds = Math.min(player.timeElapsed || 0, 600000) / 1000;
+  const fitness = (player.score || 0) + (player.totalLines || 0) * 250 + survivalSeconds * 20;
+  if(fitness >= AI_LEARN_STATE.bestFitness){
+    AI_LEARN_STATE.bestFitness = fitness;
+    AI_LEARN_STATE.bestWeights = player.aiLearnWeights;
+    AI_LEARN_STATE.generation = (AI_LEARN_STATE.generation || 0) + 1;
+  }
+  saveAILearnState();
+  refreshAILearnUI();
+}
+function resetAILearnState(){
+  AI_LEARN_STATE = { generation:0, gamesPlayed:0, bestFitness:-Infinity, bestWeights: defaultAILearnWeights() };
+  saveAILearnState();
+  refreshAILearnUI();
+}
+function refreshAILearnUI(){
+  const el = document.getElementById('aiLearnStats'); if(!el) return;
+  const best = (AI_LEARN_STATE.bestFitness === -Infinity) ? '-' : Math.round(AI_LEARN_STATE.bestFitness);
+  el.textContent = `世代: ${AI_LEARN_STATE.generation || 0} ／ 対戦数: ${AI_LEARN_STATE.gamesPlayed || 0} ／ ベストスコア: ${best}`;
+}
 
 function saveBinds() {
   localStorage.setItem('tetris_binds1', JSON.stringify(SETTINGS.binds1));
@@ -837,7 +959,7 @@ class Player {
     this.bag = []; this.next = []; this.current = null; this.hold = null; this.canHold = true;
     this.score = 0; this.level = 0; this.totalLines = 0; this.combo = -1; this.b2b = 0;
     this.dropInterval = 700; this.dropCounter = 0; this.particles = []; this.notices = [];
-    this.isAI = false; this.aiLevel = '5'; this.aiPlan = null; this.pendingGarbage = 0;
+    this.isAI = false; this.aiLevel = '5'; this.aiPlan = null; this.pendingGarbage = 0; this.aiLearnWeights = null;
     this.actionLock = false; this.rng = null; this.aiTimer = 0;
     this.timeElapsed = 0; this.purifyTimer = 0; this.clearFlash = null;
     this.gameType = 'tetris';
@@ -1033,21 +1155,153 @@ function makePiece(type){
 function getNext(p){ if(p.bag.length === 0) refillBag(p); const t = p.bag.shift(); return makePiece(t); }
 function snapshotPieceOrder(p){ const seq=[]; if(!p) return seq; if(p.current) seq.push(p.current.type); for(const nx of p.next) seq.push(nx.type); return seq; }
 
+function computeMainStats() {
+    let mainScore = 0, mainTime = 0, mainLines = 0;
+    if (mode.startsWith('puyo_') && puyoP1) {
+        mainScore = puyoP1.score; mainTime = puyoP1.timeElapsed; mainLines = puyoP1.maxChain;
+    } else if (mode.startsWith('puyotet_')) {
+        if (p1) { mainScore = p1.score; mainTime = p1.timeElapsed; mainLines = p1.totalLines; }
+        else if (puyoP1) { mainScore = puyoP1.score; mainTime = puyoP1.timeElapsed; mainLines = puyoP1.maxChain; }
+    } else {
+        if (p1) { mainScore = p1.score; mainTime = p1.timeElapsed; mainLines = p1.totalLines; }
+    }
+    return { score: mainScore, time: mainTime, lines: mainLines };
+}
+
+// タイムアタック系（タイムが短いほど良い）かどうかを判定
+function isLowerBetterMode(m) { return m === 'time'; }
+// AIが勝手に対戦・プレイするだけの観戦専用モード（プレイヤー自身の記録ではないので世界記録対象外）
+function isAiSpectatorMode(m) {
+    return m === 'ai_vs_ai' || m === 'ai_solo' || m === 'puyo_ai_vs_ai' || m === 'puyo_ai_solo' ||
+           m === 'puyotet_ai_vs_ai' || m === 'puyotet_ai_solo';
+}
+
+const MODE_LABELS = {
+    marathon: 'マラソン', free_marathon: 'フリーマラソン', time: 'タイムアタック', ultra: 'ウルトラ(3分)',
+    master: 'マスター', purify: 'ピュリファイ', vs_local: 'ブロックVS (2P ローカル)', vs_ai: 'ブロックVS (AI)',
+    puyo_marathon: 'スライム マラソン', puyo_free_marathon: 'スライム フリーマラソン',
+    puyo_vs_local: 'スライムVS (2P ローカル)', puyo_vs_ai: 'スライムVS (AI)',
+    puyotet_vs_local: 'スライムVSブロック (2P ローカル)', puyotet_vs_ai: 'スライムVSブロック (AI)',
+    balance: 'バランスゲーム'
+};
+function modeDisplayName(m) { return MODE_LABELS[m] || m; }
+
+// ゲームオーバー画面に「世界記録登録」「ランキングを見る」ボタンを用意する
+// （オンライン対戦中や、AI観戦専用モードでは表示しない）
+function prepareWorldRecordUI() {
+    const area = $('worldRecordArea');
+    const resultEl = $('worldRecordResult');
+    if (!area) return;
+    if (resultEl) { resultEl.textContent = ''; }
+
+    if (window.isOnlineMatch || isAiSpectatorMode(mode)) {
+        area.style.display = 'none';
+        return;
+    }
+    area.style.display = 'block';
+
+    window._lastRecordMode = mode;
+    window._lastRecordStats = computeMainStats();
+
+    const btn = $('registerWorldRecordBtn');
+    if (btn) {
+        const newBtn = btn.cloneNode(true);
+        btn.parentNode.replaceChild(newBtn, btn);
+        newBtn.disabled = false;
+        newBtn.textContent = '🌍 世界記録に登録';
+        newBtn.onclick = () => registerWorldRecord();
+    }
+
+    const viewBtn = $('viewWorldRankingBtn');
+    if (viewBtn) {
+        const newViewBtn = viewBtn.cloneNode(true);
+        viewBtn.parentNode.replaceChild(newViewBtn, viewBtn);
+        newViewBtn.onclick = () => openWorldRanking(window._lastRecordMode);
+    }
+}
+
+function registerWorldRecord() {
+    const resultEl = $('worldRecordResult');
+    if (!resultEl) return;
+    if (!window.socket) {
+        resultEl.style.color = '#ff8a80';
+        resultEl.textContent = '⚠️ 先にオンラインメニューでログインしてください';
+        return;
+    }
+    const m = window._lastRecordMode || mode;
+    const stats = window._lastRecordStats || computeMainStats();
+    const lowerBetter = isLowerBetterMode(m);
+    const value = lowerBetter ? stats.time : stats.score;
+
+    resultEl.style.color = '#ffd54f';
+    resultEl.textContent = '登録中...';
+
+    window.socket.emit('register_world_record', {
+        mode: m, value, score: stats.score, lines: stats.lines, timeMs: stats.time, lowerIsBetter: lowerBetter
+    }, (res) => {
+        if (!res) { resultEl.style.color = '#ff8a80'; resultEl.textContent = '⚠️ サーバーに接続できませんでした'; return; }
+        if (!res.success) {
+            resultEl.style.color = '#ff8a80';
+            resultEl.textContent = '⚠️ ' + (res.message || '登録に失敗しました');
+            return;
+        }
+        resultEl.style.color = '#ffd54f';
+        const label = modeDisplayName(m);
+        resultEl.innerHTML = res.isNewRecord
+            ? `🎉 自己ベスト更新！「${label}」で全${res.total}人中 <span style="font-size:20px;">${res.rank}位</span> です！`
+            : `「${label}」でのあなたの自己ベストは全${res.total}人中 <span style="font-size:20px;">${res.rank}位</span> です（今回の記録は自己ベスト未満のため未更新）`;
+    });
+}
+
+function openWorldRanking(m) {
+    if (!window.socket) { alert('オンラインメニューでログインしてから利用してください'); return; }
+    const lowerBetter = isLowerBetterMode(m);
+    $('wrModeTitle').textContent = `🌍 世界記録ランキング - ${modeDisplayName(m)}`;
+    window.socket.emit('get_world_ranking', { mode: m, lowerIsBetter: lowerBetter });
+    $('worldRecordRankingOverlay').classList.add('show');
+}
+
+function renderWorldRankingData(data) {
+    const listArea = $('wrListArea');
+    const banner = $('wrMyRankBanner');
+    if (!listArea || !banner) return;
+    listArea.innerHTML = '';
+    const myCode = localStorage.getItem('puyotet_online_code');
+    const lowerBetter = isLowerBetterMode(data.mode);
+    const formatValue = (row) => lowerBetter ? formatTime(row.value) : Math.round(row.value);
+
+    if (data.myData) {
+        banner.style.display = 'block';
+        banner.innerHTML = `あなたの記録: <span style="color:#ffd54f;">#${data.myRank}</span>位　${formatValue(data.myData)}　(Score:${data.myData.score} / Lines:${data.myData.lines})`;
+    } else {
+        banner.style.display = 'none';
+    }
+
+    data.top.forEach(row => {
+        const isMe = row.code === myCode;
+        const div = document.createElement('div');
+        div.style = `display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:6px; margin-bottom:4px; ${isMe ? 'background:rgba(255,213,79,0.15); border:1px solid rgba(255,213,79,0.4);' : 'background:rgba(255,255,255,0.03);'}`;
+        let medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `#${row.rank}`;
+        div.innerHTML = `
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="width:36px; text-align:center; font-weight:900;">${medal}</span>
+                <span style="font-weight:bold;">${row.name}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px; font-size:13px; color:#ccc;">
+                <span>Score:${row.score} / Lines:${row.lines}</span>
+                <span style="font-weight:900; color:#ffd54f; font-size:16px;">${formatValue(row)}</span>
+            </div>`;
+        listArea.appendChild(div);
+    });
+    if (data.top.length === 0) listArea.innerHTML = '<p style="text-align:center;color:#aaa;">まだ記録がありません。最初の記録保持者になりましょう！</p>';
+}
+
 function saveRankingRecord() {
     try {
         if(!SETTINGS.showRanking) return;
         const rKey = currentRankKey();
         const ranks = loadRanks(rKey);
-        let mainScore = 0, mainTime = 0, mainLines = 0;
-        
-        if (mode.startsWith('puyo_') && puyoP1) {
-            mainScore = puyoP1.score; mainTime = puyoP1.timeElapsed; mainLines = puyoP1.maxChain;
-        } else if (mode.startsWith('puyotet_')) {
-            if (p1) { mainScore = p1.score; mainTime = p1.timeElapsed; mainLines = p1.totalLines; }
-            else if (puyoP1) { mainScore = puyoP1.score; mainTime = puyoP1.timeElapsed; mainLines = puyoP1.maxChain; }
-        } else {
-            if (p1) { mainScore = p1.score; mainTime = p1.timeElapsed; mainLines = p1.totalLines; }
-        }
+        const { score: mainScore, time: mainTime, lines: mainLines } = computeMainStats();
         
         ranks.push({ score: mainScore, lines: mainLines, time: mainTime, date: new Date().toISOString() });
         if(mode === 'time') ranks.sort((a,b)=> a.time - b.time); 
@@ -1097,6 +1351,8 @@ function renderVsResult(winner, loser){
 function handleGameOver(deadPlayer, isWin = false){
   if(!deadPlayer || deadPlayer._gameOverHandled) return;
   deadPlayer._gameOverHandled = true;
+
+  if(deadPlayer.isAI && deadPlayer.gameType !== 'puyo'){ try{ aiLearnRecordResult(deadPlayer); }catch(e){} }
 
   const opponent = getOpponentOf(deadPlayer);
   const isVersusLoss = !isWin && !!opponent && !window.isOnlineMatch;
@@ -1151,6 +1407,7 @@ function handleGameOver(deadPlayer, isWin = false){
       $('goText').textContent = text;
       
       try { saveRankingRecord(); } catch(e){}
+      try { prepareWorldRecordUI(); } catch(e){}
       
       try{
         if(currentReplay && replayRecording){ 
@@ -1171,6 +1428,7 @@ function handleGameOver(deadPlayer, isWin = false){
 
 function applyOnlineGameOverUI() {
     if(window.isOnlineMatch) {
+        if (typeof hideEmoteBar === 'function') hideEmoteBar();
         document.getElementById('goRetry').style.display = 'none';
         const goBackBtn = document.getElementById('goBack');
         goBackBtn.textContent = 'オンラインに戻る';
@@ -1412,6 +1670,12 @@ function puyoAttackToTetGarbage(puyoNuisance) {
   return Math.floor(puyoNuisance / 5);
 }
 
+function resetAIPieceToSpawn(player){
+  if(!player || !player.current || player.actionLock) return;
+  player.current = makePiece(player.current.type);
+  player.aiPlan = null;
+}
+
 function applyPendingGarbageToPlayer(player){
   if(!player || !player.pendingGarbage) return;
   const count = player.pendingGarbage; player.pendingGarbage = 0;
@@ -1422,6 +1686,11 @@ function applyPendingGarbageToPlayer(player){
     player.board[ROWS-1] = newRow;
   }
   showCenterNotice(player, `APPLIED ${count} garbage`, {color:'#bfbfbf', time:1200});
+  // おじゃまブロックが追加されて地形が変わると、AIが計算済みだったプラン（回転・移動の手順）は
+  // 前提が崩れて無効になる（そのまま実行を続けると全く見当違いの場所に置いてしまい「暴走」して
+  // 見える原因になっていた）。AI操作中のプレイヤーは、操作中のピースを安全にスポーン位置へ戻し、
+  // 新しい地形をもとにプランを引き直させる。
+  if(player.isAI) resetAIPieceToSpawn(player);
   if(player === p1) updateGarbageIcons(p1, 'garbageIconsP1'); if(player === p2) updateGarbageIcons(p2, 'garbageIconsP2');
   drawAll();
 }
@@ -1429,7 +1698,7 @@ function applyPendingGarbageToPlayer(player){
 function initReplayRecord(){
   let modeStr = mode;
   if(mode==='time') modeStr += `_${SETTINGS.timeLineGoal}`;
-  currentReplay = { meta:{ name: `Replay ${new Date().toLocaleString()}`, mode: modeStr, created:new Date().toISOString(), seed: gameSeed, aiLvl: p2&&p2.isAI?p2.aiLevel:null }, players:{ P1:{pieceOrder:[]}, P2:{pieceOrder:[]} }, timeline:[], start: now() };
+  currentReplay = { meta:{ name: `Replay ${new Date().toLocaleString()}`, mode: modeStr, created:new Date().toISOString(), seed: gameSeed, aiLvl: (p2&&p2.isAI)?p2.aiLevel:((p1&&p1.isAI)?p1.aiLevel:null) }, players:{ P1:{pieceOrder:[]}, P2:{pieceOrder:[]} }, timeline:[], start: now() };
   if(p1) currentReplay.players.P1.pieceOrder = snapshotPieceOrder(p1); 
   if(p2) currentReplay.players.P2.pieceOrder = snapshotPieceOrder(p2); 
   replayRecording = true;
@@ -1543,7 +1812,7 @@ function togglePause(){
     if(tStart) tStart.style.display = '';
     if(tMode) tMode.style.display = '';
     const modeVal = tMode ? tMode.value : mode;
-    if(tAILvl && (modeVal.includes('vs_ai'))) tAILvl.style.display = '';
+    if(tAILvl && (modeVal.includes('vs_ai') || modeVal === 'ai_solo' || modeVal === 'puyo_ai_solo')) tAILvl.style.display = '';
     if(tSub && modeVal === 'time') tSub.style.display = '';
     if(pSelect && modeVal.startsWith('puyotet_')) pSelect.style.display = '';
     if(tRes) tRes.style.display = 'none';
@@ -1680,6 +1949,12 @@ function doHold(player){
   if(!player.hold){ player.hold = player.current; player.current = player.next.shift(); player.next.push(getNext(player)); } 
   else { const tmp = player.hold; player.hold = player.current; player.current = tmp; } 
   
+  // ホールドから戻ってきたピースは、以前ホールドされた時点の回転状態を引きずらず、
+  // 常にスポーン時の基本形（回転0）に戻す。これをしないと、AIのプラン計算が前提とする
+  // 「スポーン位置・基本回転で始まる」という仮定と食い違い、想定外の位置に置かれる原因になる。
+  player.current.shape = SHAPES[player.current.type].map(r=>r.slice());
+  player.current.rotation = 0; player.current.lastKick = [0,0]; player.current.kickIndex = 0;
+  player.current.spin = false; player.current.spinType = null; player.current.spinCheck = null;
   player.current.row = 0; player.current.col = Math.floor((COLS - player.current.shape[0].length)/2); 
   player.canHold = false;
   if(!seekingReplay && !SETTINGS.lightweight) { try{ const hc = (player.id==='P1')?holdP1:holdP2; hc.style.transform='scale(1.06)'; hc.style.transition='transform 120ms ease-out'; setTimeout(()=>{ hc.style.transform=''; },140); }catch(e){} }
@@ -1745,7 +2020,12 @@ function applyGravityStep(dt){
   if (p1) p1.timeElapsed += dt;
   if (p2) p2.timeElapsed += dt;
 
-  if(p1 && !p1.actionLock) {
+  // AIが操作するプレイヤーは、自然落下(重力)によって「AIのプラン実行が終わる前に
+  // 勝手に着地・即ロック」されてしまうと、回転や左右移動を最後まで実行できないまま
+  // ロックされてしまい、結果として「空中で動かない」「ハードドロップしない」ように
+  // 見えるバグの原因になっていた。AI操作中のプレイヤーは重力による自然落下・自動ロックを
+  // 行わず、落下と設置は完全にAI自身のプラン（processTetrisAI/aiTick）に任せる。
+  if(p1 && !p1.actionLock && !p1.isAI) {
     p1.dropCounter += dt;
     if(p1.dropCounter >= p1.dropInterval){ 
         if(!move(p1,0,1)){ 
@@ -1757,9 +2037,10 @@ function applyGravityStep(dt){
         p1.dropCounter = 0; 
     }
   }
+  if(p1 && p1.isAI && !window.isOnlineMatch) processTetrisAI(p1, dt);
   if(p2){
     if(!window.isOnlineMatch) {
-      if(!p2.actionLock) {
+      if(!p2.actionLock && !p2.isAI) {
         p2.dropCounter += dt;
         if(p2.dropCounter >= p2.dropInterval){ 
             if(!move(p2,0,1)){ 
@@ -1820,77 +2101,334 @@ function aiTick(p){
     const s = steps[p.aiPlan.step++]; 
     if(s.action === 'rotCW') applyRotation(p,1); else if(s.action === 'rotCCW') applyRotation(p,-1); 
     else if(s.action === 'left') move(p,-1,0); else if(s.action === 'right') move(p,1,0); 
+    else if(s.action === 'down') move(p,0,1);
+    else if(s.action === 'hold'){ doHold(p); recordAction(p.id,'hold'); }
     else if(s.action === 'hard'){ while(!collision(p.board,p.current.row+1,p.current.col,p.current.shape)) p.current.row++; placePieceAndHandle(p); }
   } else p.aiPlan = null;
 }
 
-function computeBestForAI(p){ 
-  const piece = p.current; if(!piece) return null;
-  let best = null; let shapes=[]; let s = clone(piece.shape);
-  for(let r=0;r<4;r++){ const key = JSON.stringify(s); if(!shapes.find(x=>x.key===key)) shapes.push({shape:clone(s),rot:r,key}); s = rotateCW(s); }
-  
-  for(const v of shapes){
-    for(let col=-2; col<=COLS; col++){
-      if(collision(p.board, 0, col, v.shape)) continue;
-      let row=0; while(!collision(p.board, row+1, col, v.shape)) row++;
-      
-      const tmp = p.board.map(r=>r.slice());
-      for(let rr=0;rr<v.shape.length;rr++) {
-        for(let cc=0;cc<v.shape[0].length;cc++) { 
-          if(v.shape[rr][cc]){ 
-            const rpos=row+rr, cpos=col+cc; 
-            if(rpos>=0 && rpos<ROWS && cpos>=0 && cpos<COLS) tmp[rpos][cpos] = 'X'; 
-          } 
+/* 実際のplacePiece()と同じ4隅判定でT-Spinの成立可否を調べる（回転後の着地を前提とする） */
+function isTSpinCorners(board, row, col, rot){
+  const centerRow = row + 1, centerCol = col + 1;
+  const corners = [
+    {r: centerRow-1, c: centerCol-1, front: (rot===0 || rot===3)}, {r: centerRow-1, c: centerCol+1, front: (rot===0 || rot===1)},
+    {r: centerRow+1, c: centerCol+1, front: (rot===1 || rot===2)}, {r: centerRow+1, c: centerCol-1, front: (rot===2 || rot===3)}
+  ];
+  let frontOcc=0, backOcc=0;
+  for(const c of corners){ if(c.r<0 || c.r>=ROWS || c.c<0 || c.c>=COLS || board[c.r][c.c]){ if(c.front) frontOcc++; else backOcc++; } }
+  if(frontOcc + backOcc >= 3) return { isTspin:true, full: (frontOcc===2) };
+  return { isTspin:false, full:false };
+}
+
+/* 1手分の全到達可能な設置候補をBFSで列挙して評価する（盤面・ライン数・T-Spin可否などを返す）。
+   単純に「回転してから真下に落とす」だけでは、せり出した屋根の下に滑り込ませる本物の
+   T-Spin（特にT-Spin Triple等）を再現できないため、実際の入力（回転・左右移動・降下）を
+   すべて辿るBFSで、キックによる「差し込み」を含めた本当に実現可能な設置だけを集める。 */
+function enumerateTetrisPlacements(board, piece, wellCol){
+  const results = [];
+  const startShape = clone(piece.shape);
+  const startCol = Math.floor((COLS - startShape[0].length)/2);
+  const startRow = 0;
+  if(collision(board, startRow, startCol, startShape)) return results;
+
+  const visited = new Set(['0,'+startRow+','+startCol]);
+  const queue = [{ rot:0, row:startRow, col:startCol, shape:startShape, path:[], lastKickIdx:-1 }];
+  const landings = [];
+  const rotKey = piece.type === 'I' ? 'I' : 'default';
+  let iter = 0;
+
+  while(queue.length && iter < 4000){
+    iter++;
+    const cur = queue.shift();
+
+    // 下移動（1マス）。これ以上落とせなければ着地候補として記録
+    if(!collision(board, cur.row+1, cur.col, cur.shape)){
+      const key = cur.rot+','+(cur.row+1)+','+cur.col;
+      if(!visited.has(key)){ visited.add(key); queue.push({ rot:cur.rot, row:cur.row+1, col:cur.col, shape:cur.shape, path:cur.path.concat('down'), lastKickIdx:cur.lastKickIdx }); }
+    } else {
+      landings.push(cur);
+    }
+    // 左右移動
+    if(!collision(board, cur.row, cur.col-1, cur.shape)){
+      const key = cur.rot+','+cur.row+','+(cur.col-1);
+      if(!visited.has(key)){ visited.add(key); queue.push({ rot:cur.rot, row:cur.row, col:cur.col-1, shape:cur.shape, path:cur.path.concat('left'), lastKickIdx:cur.lastKickIdx }); }
+    }
+    if(!collision(board, cur.row, cur.col+1, cur.shape)){
+      const key = cur.rot+','+cur.row+','+(cur.col+1);
+      if(!visited.has(key)){ visited.add(key); queue.push({ rot:cur.rot, row:cur.row, col:cur.col+1, shape:cur.shape, path:cur.path.concat('right'), lastKickIdx:cur.lastKickIdx }); }
+    }
+    // 回転（SRSキック込み。実際のapplyRotation()と同じロジックで、屋根の下への差し込みも再現する）
+    for(const dir of [1,-1]){
+      const newShape = dir === 1 ? rotateCW(cur.shape) : rotateCCW(cur.shape);
+      const trans = cur.rot + '->' + ((cur.rot + (dir===1?1:3))%4);
+      const kicks = (SRS[rotKey] && SRS[rotKey][trans]) ? SRS[rotKey][trans].slice() : [[0,0]];
+      const allKicks = kicks.concat(FALLBACK_KICKS);
+      let idx = 0;
+      for(const k of allKicks){
+        const nc = cur.col + k[0], nr = cur.row + k[1];
+        if(!collision(board, nr, nc, newShape)){
+          const newRot = (cur.rot + (dir===1?1:3))%4;
+          const key = newRot+','+nr+','+nc;
+          if(!visited.has(key)){ visited.add(key); queue.push({ rot:newRot, row:nr, col:nc, shape:newShape, path:cur.path.concat(dir===1?'rotCW':'rotCCW'), lastKickIdx:idx }); }
+          break;
         }
+        idx++;
       }
-      
-      let simulatedLines = 0;
-      for(let r0=0; r0<ROWS; r0++){
-        if(tmp[r0].every(c => c && c !== 'gameOver')) simulatedLines++;
-      }
-
-      let agg=0, holes=0, bump=0; const heights=[];
-      for(let c0=0;c0<COLS;c0++){ 
-        let h=0; 
-        for(let r0=0;r0<ROWS;r0++){ if(tmp[r0][c0] && tmp[r0][c0] !== 'gameOver'){ h = ROWS - r0; break; } } 
-        heights.push(h); 
-        let found=false; 
-        for(let r0=0;r0<ROWS;r0++){ 
-          if(tmp[r0][c0] && tmp[r0][c0] !== 'gameOver') found=true; 
-          else if(found) holes++; 
-        } 
-      }
-      
-      agg = heights.reduce((a,b)=>a+b,0); 
-      for(let i=1;i<heights.length;i++) bump += Math.abs(heights[i]-heights[i-1]);
-      
-      let wellPenalty = 0;
-      for(let i=0; i<COLS-1; i++){
-        if(heights[i] < heights[i+1]-2 && (i===0 || heights[i] < heights[i-1]-2)) wellPenalty += 5;
-      }
-
-      let holeW = p.aiLevel === 'pro' ? 25 : 15;
-      let bumpW = p.aiLevel === 'pro' ? 2 : 1.0;
-      let clearW = p.aiLevel === 'pro' ? 100 : 40;
-
-      let score = agg*0.5 + holes*holeW + bump*bumpW + wellPenalty;
-      if (simulatedLines === 4) score -= clearW;
-      else if (simulatedLines > 0) score -= (simulatedLines * 2);
-
-      if(!best || score < best.score) best = {score, col, rot:v.rot, shape:v.shape};
     }
   }
-  
-  if(!best) return null;
-  const curRot = piece.rotation || 0; const rotDiff = (best.rot - curRot + 4) % 4;
-  const steps = [];if(rotDiff === 1) steps.push({action:'rotCW'}); 
-  else if(rotDiff === 2){ steps.push({action:'rotCW'}); steps.push({action:'rotCW'}); } 
-  else if(rotDiff === 3) steps.push({action:'rotCCW'});
-  
-  const targetCol = best.col; const delta = targetCol - piece.col;
-  if(delta < 0) for(let i=0;i<Math.abs(delta);i++) steps.push({action:'left'});
-  if(delta > 0) for(let i=0;i<delta;i++) steps.push({action:'right'});
-  steps.push({action:'hard'}); return {type:piece.type, steps};
+
+  for(const st of landings){
+    const tmp = board.map(r=>r.slice());
+    for(let rr=0;rr<st.shape.length;rr++){
+      for(let cc=0;cc<st.shape[0].length;cc++){
+        if(st.shape[rr][cc]){ const rpos=st.row+rr, cpos=st.col+cc; if(rpos>=0 && rpos<ROWS && cpos>=0 && cpos<COLS) tmp[rpos][cpos]='X'; }
+      }
+    }
+
+    // T-Spinの可否は「置く前の盤面」の4隅を見る。回転(rot!==0)が絡んだ設置のみ本物のT-Spinとして扱う
+    let tSpinInfo = { isTspin:false, full:false };
+    if(piece.type === 'T' && st.rot !== 0){
+      tSpinInfo = isTSpinCorners(board, st.row, st.col, st.rot);
+      // T-Spin Triple等で使われる特殊な最終キック（本家のkickIndex===4相当）は角の数に関わらずフル扱いにする
+      if(tSpinInfo.isTspin && st.lastKickIdx >= 4) tSpinInfo.full = true;
+    }
+
+    let simulatedLines = 0;
+    const clearedRowIdx = [];
+    for(let r0=0; r0<ROWS; r0++){ if(tmp[r0].every(c => c && c !== 'gameOver')){ simulatedLines++; clearedRowIdx.push(r0); } }
+
+    // 穴の判定は「置いた直後そのままの盤面」ではなく、このタイミングで揃うライン消去まで
+    // シミュレートした後の盤面（実際にplacePiece()が行うのと同じ、揃った行を除いて上から
+    // 詰める処理）で行う。これにより、穴を作ってしまっても同じ手でその上のラインを消せば
+    // 穴が実際に解消される（＝ペナルティなし）ことを正しく評価でき、「すぐに消せない穴」だけを
+    // 強く罰することができる。
+    let afterClear = clearedRowIdx.length ? tmp.filter((_,i)=>!clearedRowIdx.includes(i)) : tmp;
+    while(afterClear.length < ROWS) afterClear = [Array(COLS).fill(0), ...afterClear];
+
+    let holes=0; const heights=[];
+    for(let c0=0;c0<COLS;c0++){
+      let h=0;
+      for(let r0=0;r0<ROWS;r0++){ if(afterClear[r0][c0] && afterClear[r0][c0] !== 'gameOver'){ h = ROWS - r0; break; } }
+      heights.push(h);
+      let found=false;
+      for(let r0=0;r0<ROWS;r0++){ if(afterClear[r0][c0] && afterClear[r0][c0] !== 'gameOver') found=true; else if(found) holes++; }
+    }
+    const agg = heights.reduce((a,b)=>a+b,0);
+    let bump = 0; for(let i=1;i<heights.length;i++) bump += Math.abs(heights[i]-heights[i-1]);
+
+    // 井戸(wellCol)は基本I専用に空けておきたいので、他ピースが埋めた場合はペナルティ
+    let wellFillPenalty = 0;
+    if(piece.type !== 'I'){
+      for(let rr=0;rr<st.shape.length;rr++) for(let cc=0;cc<st.shape[0].length;cc++){ if(st.shape[rr][cc] && (st.col+cc)===wellCol) wellFillPenalty += 60; }
+    }
+    // 井戸は他の列よりへこんでいるほど良い（テトリス待ち）
+    let wellDepthBonus = Math.max(0, Math.min(...heights.filter((_,i)=>i!==wellCol)) - heights[wellCol]) * 8;
+
+    results.push({ board: afterClear, col: st.col, row: st.row, rot: st.rot, shape: st.shape, simulatedLines, holes, heights, agg, bump, tSpinInfo, wellFillPenalty, wellDepthBonus, path: st.path });
+  }
+  return results;
+}
+
+function scoreTetrisPlacement(pl, aiLvl, godMode, dangerFactor, existingHoles, learnW){
+  existingHoles = existingHoles || 0;
+  // learnW: AI自己学習で得られた重み倍率（学習無効時はnullで、従来通りの評価になる）
+  const lw = learnW || defaultAILearnWeights();
+  // 穴（上から置けない空間）を作ることを強く嫌うよう重みを大幅増加。レベル差もはっきり出るようにする
+  let holeW = (godMode ? 170 : (75 + aiLvl * 14)) * lw.holeW;
+  let bumpW = (godMode ? 1.6 : (0.7 + aiLvl * 0.12)) * lw.bumpW;
+
+  // 危険度(dangerFactor: 0=安全 〜 1=崩壊寸前)が上がるほど、井戸の確保より生存を優先する
+  const wellFillPenalty = pl.wellFillPenalty * (1 - dangerFactor) * lw.wellFillPenalty;
+  const wellDepthBonus = pl.wellDepthBonus * (1 - dangerFactor) * lw.wellDepthBonus;
+
+  let score = pl.agg*0.5 + pl.holes*holeW + pl.bump*bumpW + wellFillPenalty - wellDepthBonus;
+
+  // 積みすぎによる「勝手な自爆」を防ぐハードな安全マージン。高さが天井に近づくほど
+  // 二次関数的に強烈なペナルティを課し、井戸確保やテトリス待ちより生存を優先させる。
+  const maxH = Math.max(...pl.heights);
+  const ceiling = ROWS * 0.68;
+  if(maxH > ceiling){
+    const over = maxH - ceiling;
+    score += over * over * (godMode ? 10 : 16) * lw.ceilingPenalty;
+  }
+
+  // すでに開いている穴をこの設置（ライン消去含む）でどれだけ解消できたかを強く評価する。
+  // 穴を無視してただ上に積み続けるのではなく、穴の上のラインを消して埋めにいく行動を優先させる。
+  const holesResolved = Math.max(0, existingHoles - pl.holes);
+  if(holesResolved > 0){
+    score -= holesResolved * (godMode ? 170 : (115 + aiLvl * 5)) * lw.holesResolvedBonus;
+  }
+  // この一手で新たに生まれた穴のうち、同じ手のライン消去でも解消できなかった分（＝すぐに消せない穴）は、
+  // 通常の穴ペナルティに加えて個数の2乗で跳ね上がる追加ペナルティを課し、強く回避させる。
+  const newHolesUnresolved = Math.max(0, pl.holes - existingHoles);
+  if(newHolesUnresolved > 0){
+    score += newHolesUnresolved * newHolesUnresolved * (godMode ? 70 : 55) * lw.holeW;
+  }
+
+  const linesCleared = pl.simulatedLines;
+  const isRealTspin = pl.tSpinInfo.isTspin;
+
+  if(linesCleared === 4){
+    // テトリス（4段消し）は最重要ゴール
+    score -= (godMode ? 520 : (150 + aiLvl * 12)) * lw.tetrisBonus;
+  } else if(isRealTspin && linesCleared > 0){
+    // T-Spinでのライン消しはテトリス級（またはそれ以上）に高評価。フルT-Spinはさらに強く優遇する
+    const base = pl.tSpinInfo.full ? 300 : 170;
+    score -= (godMode ? base * 1.6 : base * (0.7 + aiLvl * 0.05)) * linesCleared * lw.tspinBonus;
+  } else if(isRealTspin){
+    // ライン消しを伴わないT-Spin成立（次の設置での複数消しの布石）にも小さな加点
+    score -= (godMode ? 45 : (10 + aiLvl * 2)) * lw.tspinBonus;
+  } else if(linesCleared > 0){
+    // 通常時は1〜3ラインを崩してまで消すのは避けテトリス/T-Spinの機会を温存するが、
+    // 既存の穴が多い・積み上がって危険になるほどこの「我慢」は弱まり、逆に消す手を積極的に評価する
+    const avoidBias = (1 - dangerFactor) * ((godMode ? 130 : (40 + aiLvl * 8)) - linesCleared*15) * lw.lineAvoidBias;
+    const surviveBonus = dangerFactor * linesCleared * 170;
+    score += avoidBias - surviveBonus;
+  }
+
+  // 2段以上のくぼみ（左右どちらか低い方の列より2段以上低い列）を数える。
+  // 2段以上のくぼみは3個以上作らない（2個までは許容）。3段以上のくぼみは1個までとし、
+  // それぞれ超過した分だけ強いペナルティを課す（許容される1個の深い井戸＝wellColでのテトリス待ちはそのまま活かせる）。
+  let wellDepth2Count = 0, wellDepth3Count = 0;
+  for(let c0=0;c0<COLS;c0++){
+    // 端の列は隣接列が片側にしか無いので、その1つの隣接列との差だけで深さを測る
+    // （以前は無い側を自分自身の高さで代用していたため、端の深い井戸が全くカウントされず、
+    // その分だけ余分にもう1つ別の深いくぼみを許してしまい、Iミノでしか埋まらない穴が
+    // 2つできてしまう原因になっていた）
+    let neighborH;
+    if(c0 === 0) neighborH = pl.heights[1];
+    else if(c0 === COLS-1) neighborH = pl.heights[COLS-2];
+    else neighborH = Math.min(pl.heights[c0-1], pl.heights[c0+1]);
+    const depth = neighborH - pl.heights[c0];
+    if(depth >= 2) wellDepth2Count++;
+    if(depth >= 3) wellDepth3Count++;
+  }
+  // 片側の壁(端の列)自体が6段以上積み上がっている場合も、掘り下げた深い井戸と同じくらい
+  // 危険な偏りとみなし、3段以上のくぼみと同じ「1個まで」の枠に含めてカウントする
+  for(const edgeCol of [0, COLS-1]){
+    if(pl.heights[edgeCol] >= 6) wellDepth3Count++;
+  }
+  if(wellDepth2Count > 2){
+    score += (wellDepth2Count - 2) * (godMode ? 90 : 70) * lw.wellCountPenalty;
+  }
+  if(wellDepth3Count > 1){
+    score += (wellDepth3Count - 1) * (godMode ? 320 : 260) * lw.wellCountPenalty;
+  }
+
+  // 盤面で一番高く積み上がっている列（一番上のブロック）と、一番低く空いている列
+  // （一番下の空間）の高低差が著しく開いている場合にペナルティを課す
+  const topMostBlock = Math.max(...pl.heights);
+  const bottomMostSpace = Math.min(...pl.heights);
+  const heightRange = topMostBlock - bottomMostSpace;
+  const heightRangeThreshold = ROWS * 0.3;
+  if(heightRange > heightRangeThreshold){
+    const overRange = heightRange - heightRangeThreshold;
+    score += overRange * overRange * (godMode ? 4 : 6) * lw.heightRangePenalty;
+  }
+
+  return score;
+}
+
+function computeBestForAI(p){
+  const piece = p.current; if(!piece) return null;
+  const godMode = (p.aiLevel === 'pro');
+  const aiLvl = godMode ? 12 : (parseInt(p.aiLevel) || 5);
+  const wellCol = COLS - 1;
+
+  // 現在の盤面にすでにある穴の数を数える。これが多いほど「見た目の高さ」以上に危険
+  // （消せる見込みが減っている）ので、危険度判定と穴解消ボーナスの両方に使う。
+  let existingHoles = 0;
+  for(let c=0;c<COLS;c++){
+    let found = false;
+    for(let r=0;r<ROWS;r++){
+      if(p.board[r][c] && p.board[r][c] !== 'gameOver') found = true;
+      else if(found) existingHoles++;
+    }
+  }
+
+  // 現在の盤面の最大高さを見て、崩壊寸前になるほど「我慢」を弱める連続値(0=安全〜1=危険)を作る
+  let maxHeightNow = 0;
+  for(let c=0;c<COLS;c++){ for(let r=0;r<ROWS;r++){ if(p.board[r][c] && p.board[r][c] !== 'gameOver'){ maxHeightNow = Math.max(maxHeightNow, ROWS-r); break; } } }
+  const heightRatio = maxHeightNow / ROWS;
+  const heightDanger = Math.max(0, Math.min(1, (heightRatio - 0.35) / 0.3));
+  // 穴が積み重なっている状態を放置して「勝手に自爆」しないよう、穴の多さそのものも危険度に反映する
+  const holesDanger = Math.max(0, Math.min(1, (existingHoles - 2) / 9));
+  const dangerFactor = Math.max(heightDanger, holesDanger * 0.9);
+
+  // レベルによる思考の深さとミス率。Lv6以上は神モードと同様に次の1手も先読みして精度を上げ、
+  // 低レベルほど確率的にわざとベストではない手を選ぶことで、実力差がはっきり出るようにする。
+  const useLookahead = godMode || aiLvl >= 6;
+  const mistakeChance = godMode ? 0 : Math.max(0, 0.30 - aiLvl * 0.032);
+
+  // 指定した1個のピースについて、盤面上の最良の設置(スコアが最小=良い)を探すヘルパー。
+  // 神(Pro)モード、および高レベルのAIはネクストピースも1手先読みして、より良い連続設置を選ぶ
+  // （重いのでスコア上位のみ先読みする）。
+  function bestForPiece(pieceObj, boardState, allowLookahead){
+    const placements = enumerateTetrisPlacements(boardState, pieceObj, wellCol);
+    if(!placements.length) return null;
+    let scored = placements.map(pl => ({ pl, score: scoreTetrisPlacement(pl, aiLvl, godMode, dangerFactor, existingHoles, p.aiLearnWeights) }));
+    scored.sort((a,b) => a.score - b.score);
+
+    if(useLookahead && allowLookahead && p.next && p.next[0]){
+      const nextType = p.next[0].type;
+      const nextPiece = { type: nextType, shape: SHAPES[nextType].map(r=>r.slice()) };
+      const topK = scored.slice(0, godMode ? 12 : 6); // 先読みは上位候補のみに絞ってBFSの計算コストを抑える
+      for(const entry of topK){
+        const nextPlacements = enumerateTetrisPlacements(entry.pl.board, nextPiece, wellCol);
+        if(nextPlacements.length){
+          let bestNext = Infinity;
+          for(const np of nextPlacements){ const s2 = scoreTetrisPlacement(np, aiLvl, godMode, dangerFactor, 0, p.aiLearnWeights); if(s2 < bestNext) bestNext = s2; }
+          entry.score = entry.score*(godMode?0.55:0.65) + bestNext*(godMode?0.45:0.35);
+        }
+      }
+      scored.sort((a,b) => a.score - b.score);
+    }
+
+    // 低レベルAIはたまにベストな手を外して「本当に弱い」プレイをするようにする
+    if(mistakeChance > 0 && scored.length > 1 && Math.random() < mistakeChance){
+      const poolSize = Math.min(scored.length, 4 + Math.floor((9 - aiLvl) / 2));
+      const idx = 1 + Math.floor(Math.random() * Math.max(1, poolSize - 1));
+      return { score: scored[idx].score, pl: scored[idx].pl };
+    }
+
+    return { score: scored[0].score, pl: scored[0].pl };
+  }
+
+  const currentBest = bestForPiece(piece, p.board, true);
+
+  // 「今のピースを置くと穴ができそうな時」にホールドで回避できないかを検討する。
+  // ホールド内（無ければネクスト先頭）のピースで置いた場合の最良手も試算し、
+  // ・今の手が穴を作ってしまい、ホールドすればそれを避けられる（かつ大きく損しない）
+  // ・単純にホールドした方が明確にスコアが良い
+  // のどちらかであればホールドを選択する。
+  let holdChoice = null;
+  if(p.canHold){
+    const holdSourceType = p.hold ? p.hold.type : (p.next && p.next[0] ? p.next[0].type : null);
+    if(holdSourceType){
+      const holdPieceObj = { type: holdSourceType, shape: SHAPES[holdSourceType].map(r=>r.slice()) };
+      const holdBest = bestForPiece(holdPieceObj, p.board, false);
+      if(holdBest && currentBest){
+        const holeDiff = currentBest.pl.holes - holdBest.pl.holes; // 正なら今の手の方が穴が多い
+        const scoreDiff = currentBest.score - holdBest.score; // 正ならホールドの方が良い
+        const holeGuardTriggered = currentBest.pl.holes > 0 && holeDiff >= 1;
+        const scoreThreshold = godMode ? 55 : 35;
+        if((holeGuardTriggered && scoreDiff > -20) || scoreDiff > scoreThreshold){
+          holdChoice = holdBest;
+        }
+      } else if(!currentBest && holdBest){
+        holdChoice = holdBest; // 今のピースが実質置けない（詰みかけ）ならホールドで回避
+      }
+    }
+  }
+
+  if(holdChoice){
+    return { type: piece.type, steps: [{action:'hold'}] };
+  }
+
+  if(!currentBest) return null;
+  const steps = currentBest.pl.path.map(a => ({action:a}));
+  steps.push({action:'hard'});
+  return {type:piece.type, steps};
 }
 
 function refreshReplayUI(){
@@ -2136,9 +2674,9 @@ $('clearRankingBtn').addEventListener('click', ()=> {
 $('titleModeSelect').addEventListener('change', (e) => {
     const val = e.target.value;
     $('titleSubMode').style.display = (val === 'time') ? '' : 'none';
-    const isAIMode = (val === 'vs_ai' || val === 'puyo_vs_ai' || val === 'puyotet_vs_ai');
+    const isAIMode = (val === 'vs_ai' || val === 'puyo_vs_ai' || val === 'puyotet_vs_ai' || val === 'ai_vs_ai' || val === 'puyo_ai_vs_ai' || val === 'puyotet_ai_vs_ai' || val === 'ai_solo' || val === 'puyo_ai_solo');
     $('titleAILvl').style.display = isAIMode ? '' : 'none';
-    const isPuyoTetVS = (val === 'puyotet_vs_local' || val === 'puyotet_vs_ai');
+    const isPuyoTetVS = (val === 'puyotet_vs_local' || val === 'puyotet_vs_ai' || val === 'puyotet_ai_vs_ai');
     $('puyotetPlayerSelect').style.display = isPuyoTetVS ? '' : 'none';
     
     let mText = "Mode: " + val.toUpperCase().replace(/_/g,' ');
@@ -2168,7 +2706,17 @@ function startGame(modeSelected){
   
   if(mode === 'vs_local' || window.isOnlineMatch && puyotetP2Type === 'tetris'){ p2 = new Player('P2'); p2.rng = new Xorshift(gameSeed + 12345); $('cardP2').style.display = 'block'; }
   else if(mode === 'vs_ai'){ p2 = new Player('P2'); p2.rng = new Xorshift(gameSeed + 12345); p2.isAI = true; p2.aiLevel = SETTINGS.aiLevel; $('cardP2').style.display = 'block'; }
+  else if(mode === 'ai_vs_ai'){
+    p1.isAI = true; p1.aiLevel = SETTINGS.aiLevel;
+    p2 = new Player('P2'); p2.rng = new Xorshift(gameSeed + 12345); p2.isAI = true; p2.aiLevel = SETTINGS.aiLevel; $('cardP2').style.display = 'block';
+  }
+  else if(mode === 'ai_solo'){
+    p1.isAI = true; p1.aiLevel = SETTINGS.aiLevel; $('cardP2').style.display = 'none';
+  }
   else { $('cardP2').style.display = 'none'; }
+
+  // AI自己学習：今回の対戦用に(学習が有効な場合のみ)評価重みの試行版を割り当てる
+  aiLearnAssignTrial(p1); if(p2) aiLearnAssignTrial(p2);
 
   $('cardPuyoP1').style.display = 'none';
   $('cardPuyoP2').style.display = 'none';
@@ -2192,6 +2740,8 @@ function startGame(modeSelected){
   if(window.isOnlineMatch) {
       if($('p1NameLabel')) $('p1NameLabel').textContent = localStorage.getItem('puyotet_online_name') || 'P1';
       if($('p2NameLabel') && window._opponentName) $('p2NameLabel').textContent = window._opponentName;
+  } else if($('p1NameLabel')) {
+      $('p1NameLabel').textContent = p1.isAI ? `AI Lv.${SETTINGS.aiLevel}` : t("p1");
   }
 
   $('titleOverlay').classList.remove('show'); $('gameOverOverlay').classList.remove('show');
@@ -2203,6 +2753,7 @@ function backToTitle(){
   stopGame(); stopReplay(false); stopPuyoGame(); if(typeof stopBalanceGame === 'function') stopBalanceGame();
   if(window.socket) window.socket.emit('return_to_lobby');
   window.isOnlineMatch = false; window.currentMatchId = null;
+  if (typeof hideEmoteBar === 'function') hideEmoteBar();
   $('sharedControls').style.display = 'none';
   $('titleOverlay').classList.add('show'); $('optionsOverlay').classList.remove('show'); $('gameOverOverlay').classList.remove('show'); $('cardP2').style.display = 'block'; 
   $('cardPuyoP1').style.display = 'none'; $('cardPuyoP2').style.display = 'none';
@@ -2210,7 +2761,7 @@ function backToTitle(){
   const tMode = $('titleModeSelect'); const tAILvl = $('titleAILvl'); const tSub = $('titleSubMode'); const pSelect = $('puyotetPlayerSelect');
   if(tStart) tStart.style.display = ''; if(tRes) tRes.style.display = 'none';
   if(tMode) tMode.style.display = ''; 
-  if(tAILvl && mode === 'vs_ai') tAILvl.style.display = '';
+  if(tAILvl && (mode === 'vs_ai' || mode === 'puyo_vs_ai' || mode === 'puyotet_vs_ai' || mode === 'ai_vs_ai' || mode === 'puyo_ai_vs_ai' || mode === 'puyotet_ai_vs_ai' || mode === 'ai_solo' || mode === 'puyo_ai_solo')) tAILvl.style.display = '';
   if(tSub && mode === 'time') tSub.style.display = '';
   if(pSelect && mode.startsWith('puyotet_')) pSelect.style.display = '';
   $('titleOverlay').querySelector('.titleBig').textContent = 'Block Slime';
@@ -2224,14 +2775,14 @@ $('goRetry').addEventListener('click', ()=> {
     $('gameOverOverlay').classList.remove('show'); 
     startGame(puyoMode || mode); 
 });
-$('optionsBtn').addEventListener('click', ()=> { $('optionsOverlay').classList.add('show'); refreshReplayUI(); refreshRankUI(); });
+$('optionsBtn').addEventListener('click', ()=> { $('optionsOverlay').classList.add('show'); refreshReplayUI(); refreshRankUI(); refreshAILearnUI(); });
 
 $('optionsClose').addEventListener('click', ()=> {
   $('optionsOverlay').classList.remove('show');
   if(!running && !replayPlaying && !puyoRunning && !window.isOnlineMatch) $('titleOverlay').classList.add('show');
 });
 
-$('titleOptionsBtn').addEventListener('click', ()=> { $('optionsOverlay').classList.add('show'); $('titleOverlay').classList.remove('show'); refreshReplayUI(); refreshRankUI(); });
+$('titleOptionsBtn').addEventListener('click', ()=> { $('optionsOverlay').classList.add('show'); $('titleOverlay').classList.remove('show'); refreshReplayUI(); refreshRankUI(); refreshAILearnUI(); });
 $('pauseBtn').addEventListener('click', ()=> togglePause());
 $('saveReplayBtn').addEventListener('click', ()=> { 
   if(currentReplay){ currentReplay.meta.saved = true; addReplayToStorage(currentReplay); currentReplay = null; replayRecording = false; refreshReplayUI(); alert('Saved current replay.'); } else alert('No active replay.'); 
@@ -2363,6 +2914,8 @@ function applyOptionsToUI(){
   if($('optShowRanking')) $('optShowRanking').checked = SETTINGS.showRanking;
   if($('titleAILvl')) $('titleAILvl').value = SETTINGS.aiLevel;
   if($('titleSubMode')) $('titleSubMode').value = SETTINGS.timeLineGoal;
+  if($('optAiLearn')) $('optAiLearn').checked = SETTINGS.aiLearn;
+  refreshAILearnUI();
 }
 
 buildKeyConfigUI(); applyOptionsToUI(); refreshRankUI(); refreshReplayUI();
@@ -2378,6 +2931,8 @@ $('optRotDAS').addEventListener('change', ()=>{ SETTINGS.rotDas = parseInt($('op
 $('optRotARR').addEventListener('change', ()=>{ SETTINGS.rotArr = parseInt($('optRotARR').value||80); localStorage.setItem('tetris_rotArr', SETTINGS.rotArr); });
 $('optShowRanking').addEventListener('change', ()=>{ SETTINGS.showRanking = $('optShowRanking').checked; localStorage.setItem('tetris_showRank', SETTINGS.showRanking ? '1' : '0'); refreshRankUI(); });
 $('titleAILvl').addEventListener('change', ()=>{ SETTINGS.aiLevel = $('titleAILvl').value; localStorage.setItem('tetris_ai_level', SETTINGS.aiLevel); });
+if($('optAiLearn')) $('optAiLearn').addEventListener('change', ()=>{ SETTINGS.aiLearn = $('optAiLearn').checked; localStorage.setItem('tetris_ai_learn', SETTINGS.aiLearn ? '1' : '0'); refreshAILearnUI(); });
+if($('aiLearnResetBtn')) $('aiLearnResetBtn').addEventListener('click', ()=>{ if(confirm('AIの学習内容をリセットしますか？')) resetAILearnState(); });
 
 function touchStartRepeat(action, player = p1){
   if(replayPlaying || !player || player.actionLock) return;
@@ -2857,6 +3412,7 @@ function sendPuyoAttack(pp, attack) {
 
 async function puyoChainLoop(pp) {
     let chainNum = 0;
+    let totalAttack = 0;
     while(true) {
         const groups = puyoFindPops(pp.board);
         if(groups.length === 0) break;
@@ -2870,16 +3426,15 @@ async function puyoChainLoop(pp) {
         puyoDrawAll();
         await sleep(300);
         
-        let attack = puyoCalcAttack(groups, chainNum);
-        pp.score += puyoCalcScore(groups, chainNum);
+        let attack = puyoCalcAttack(groups, chainNum, pp.board);
+        pp.score += puyoCalcScore(groups, chainNum, pp.board);
         
         if (puyoMode === 'puyo_free_marathon') {
             pp.dropInterval = 800;
         }
 
-        if(attack > 0) {
-            sendPuyoAttack(pp, attack);
-        }
+        // 連鎖の途中で1手ごとに送るのではなく、連鎖が全て終わってからまとめて送るために合算しておく
+        totalAttack += attack;
         
         puyoShowNotice(pp, chainNum > 1 ? `${chainNum} CHAIN!` : 'POP!', chainNum > 1 ? '#ffeb3b' : '#fff');
         for(const cell of popCells) { if(cell.r >= 0 && cell.r < PUYO_ROWS) pp.board[cell.r][cell.c] = null; }
@@ -2903,9 +3458,13 @@ async function puyoChainLoop(pp) {
         if (isEmpty) {
             puyoShowNotice(pp, "ALL CLEAR!", "#ffe83b");
             pp.score += 3600; 
-            let acAttack = 30; 
-            sendPuyoAttack(pp, acAttack);
+            totalAttack += 20;
         }
+    }
+
+    // 連鎖(および全消しボーナス)が全て終わってから、合計分をまとめて一度に送る
+    if(totalAttack > 0){
+        sendPuyoAttack(pp, totalAttack);
     }
 }
 
@@ -2961,30 +3520,44 @@ function puyoFindPops(board) {
   return groups;
 }
 
-function puyoCalcScore(groups, chainNum) {
-  const chainBonus = [0, 0, 8, 16, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320][Math.min(chainNum, 13)] || 320;
-  let score = 0;
-  for(const g of groups) {
-    const puyoBonus = Math.max(0, g.length - 4);
-    score += (10 * g.length) * (chainBonus + puyoBonus + 1);
-  }
-  return score;
+/* 本家(ぷよぷよ通)準拠の得点・攻撃力テーブル
+   得点 = 10 * 消したぷよ数 * (連鎖ボーナス + 色数ボーナス + 連結ボーナス合計)  (最低倍率は1)
+   おじゃまぷよ = floor(得点 / 70)  ※本家の「target point=70」に準拠 */
+const PUYO_CHAIN_POWER_TABLE = [0,0,8,16,32,64,96,128,160,192,224,256,288,320,352,384,416,448,480];
+function puyoChainPower(chainNum){
+  if(chainNum < PUYO_CHAIN_POWER_TABLE.length) return PUYO_CHAIN_POWER_TABLE[chainNum];
+  // 本家では18連鎖以降も+32ずつ伸び続ける
+  return PUYO_CHAIN_POWER_TABLE[PUYO_CHAIN_POWER_TABLE.length-1] + (chainNum - (PUYO_CHAIN_POWER_TABLE.length-1)) * 32;
+}
+const PUYO_COLOR_BONUS_TABLE = [0,0,3,6,12,24];
+function puyoColorBonus(numColors){
+  if(numColors < PUYO_COLOR_BONUS_TABLE.length) return PUYO_COLOR_BONUS_TABLE[Math.max(numColors,1)];
+  return 24;
+}
+const PUYO_GROUP_BONUS_TABLE = {4:0,5:2,6:3,7:4,8:5,9:6,10:7};
+function puyoGroupBonus(size){
+  if(size <= 4) return 0;
+  if(size in PUYO_GROUP_BONUS_TABLE) return PUYO_GROUP_BONUS_TABLE[size];
+  return 10; // 11個以上
 }
 
-function puyoCalcAttack(groups, chainNum) {
-  if (chainNum === 1) return 0; 
-  if (chainNum === 2) return 12; 
-  if (chainNum === 3) return 30; 
-  if (chainNum === 4) return 60; 
-  if (chainNum === 5) return 100; 
-  if (chainNum >= 10) return 1000; 
-  
-  if (chainNum === 6) return 150;
-  if (chainNum === 7) return 250;
-  if (chainNum === 8) return 400;
-  if (chainNum === 9) return 600;
-  
-  return 1000;
+function puyoCalcScore(groups, chainNum, board) {
+  let totalCleared = 0, groupBonusSum = 0; const colors = new Set();
+  for(const g of groups) {
+    totalCleared += g.length;
+    groupBonusSum += puyoGroupBonus(g.length);
+    if(board){ const cell = g[0]; const color = board[cell.r] && board[cell.r][cell.c]; if(color) colors.add(color); }
+  }
+  const chainPower = puyoChainPower(chainNum);
+  const colorBonus = puyoColorBonus(colors.size || 1);
+  const multiplier = Math.max(1, chainPower + colorBonus + groupBonusSum);
+  return 10 * totalCleared * multiplier;
+}
+
+function puyoCalcAttack(groups, chainNum, board) {
+  const score = puyoCalcScore(groups, chainNum, board);
+  // target point（何点で おじゃま1個になるか）を大きくして、送られる量を全体的に抑える
+  return Math.floor(score / 100);
 }
 
 function puyoCascadeNuisanceStep(board) {
@@ -3002,26 +3575,37 @@ function puyoCascadeNuisanceStep(board) {
 }
 
 async function cascadeNuisanceDrops(pp, totalNuisance) {
-   let remaining = totalNuisance;
-   while (remaining > 0) {
-       let toDrop = Math.min(remaining, PUYO_COLS);
+   // 降ってくる分をあらかじめ「行」単位に分けておき、1行ずつ完全に着地するのを待ってから
+   // 次の行を降らせる…という従来の「小分けにポツポツ降る」動きをやめ、
+   // 次の行のスペースが最低限空いた時点ですぐ続けて次の行を投入することで、
+   // まとまった量のおじゃまぷよが一気に（連続した1つの塊として）降ってくるようにする。
+   const fullRows = Math.floor(totalNuisance / PUYO_COLS);
+   const remainder = totalNuisance % PUYO_COLS;
+   const rowsToSpawn = [];
+   for(let i=0;i<fullRows;i++) rowsToSpawn.push(PUYO_COLS);
+   if(remainder > 0) rowsToSpawn.push(remainder);
+
+   for(const toDrop of rowsToSpawn){
        let columns = [0, 1, 2, 3, 4, 5];
        shuffle(columns, pp.rng);
-       
        for (let i = 0; i < toDrop; i++) {
            let col = columns[i];
            if (pp.board[0][col] === null) {
                pp.board[0][col] = 'nuisance';
            }
        }
-       remaining -= toDrop;
-       
-       let falling = true;
-       while(falling) {
-           falling = puyoCascadeNuisanceStep(pp.board);
-           puyoDrawAll();
-           if(falling) await sleep(20);
-       }
+       // 次の行を続けて投入できるよう1ステップだけ落として最上段のスペースを空ける
+       puyoCascadeNuisanceStep(pp.board);
+       puyoDrawAll();
+       await sleep(20);
+   }
+
+   // 積み終えたら残りは全て着地するまで一気に流し切る
+   let falling = true;
+   while(falling) {
+       falling = puyoCascadeNuisanceStep(pp.board);
+       puyoDrawAll();
+       if(falling) await sleep(20);
    }
    puyoDrawAll();
 }
@@ -3083,6 +3667,7 @@ function puyoHandleGameOver(deadPP) {
   $('goTitle').textContent = title; $('goText').textContent = text;
   
   try { saveRankingRecord(); } catch(e){}
+  try { prepareWorldRecordUI(); } catch(e){}
   
   try {
     if(currentReplay && replayRecording) {
@@ -3273,54 +3858,168 @@ function puyoAiTick(pp) {
   } else { puyoHardDrop(pp); plan.done = true; }
 }
 
-function puyoComputeBestMove(pp) {
-  if(!pp.current) return null;
-  let bestScore = Infinity; let bestPlan = null;
-  const mainC = pp.current.mainColor; const subC = pp.current.subColor;
+/* 盤面を仮に発火させたときに何連鎖になるか（実際には盤面を書き換えずに）調べる */
+function puyoSimulateChainLength(board) {
+  let b = board.map(row => row.slice());
+  let chain = 0;
+  while(true) {
+    const groups = puyoFindPops(b);
+    if(groups.length === 0) break;
+    chain++;
+    for(const g of groups) for(const cell of g) b[cell.r][cell.c] = null;
+    let moved = true;
+    while(moved) {
+      moved = false;
+      for(let c = 0; c < PUYO_COLS; c++) {
+        for(let r = PUYO_ROWS - 2; r >= 0; r--) {
+          if(b[r][c] !== null && b[r+1][c] === null) { b[r+1][c] = b[r][c]; b[r][c] = null; moved = true; }
+        }
+      }
+    }
+  }
+  return chain;
+}
+
+function puyoEnumeratePlacements(board, mainC, subC) {
+  const results = [];
   for(let rot = 0; rot < 4; rot++) {
     for(let col = 0; col < PUYO_COLS; col++) {
       const tmpCur = { mainColor: mainC, subColor: subC, rotation: rot, row: 1, col: col };
       const sub = puyoGetSubPos(tmpCur);
-      if(puyoCollision(pp.board, tmpCur.row, tmpCur.col)) continue;
-      if(puyoCollision(pp.board, sub.r, sub.c)) continue;
+      if(puyoCollision(board, tmpCur.row, tmpCur.col)) continue;
+      if(puyoCollision(board, sub.r, sub.c)) continue;
       let r = tmpCur.row;
       while(true) {
         const nextR = r + 1; const tmpC2 = {...tmpCur, row: nextR}; const sub2 = puyoGetSubPos(tmpC2);
-        if(puyoCollision(pp.board, nextR, tmpCur.col) || puyoCollision(pp.board, sub2.r, sub2.c)) break;
+        if(puyoCollision(board, nextR, tmpCur.col) || puyoCollision(board, sub2.r, sub2.c)) break;
         r = nextR;
       }
       const finalCur = {...tmpCur, row: r}; const finalSub = puyoGetSubPos(finalCur);
-      const simBoard = pp.board.map(row => row.slice());
+      const simBoard = board.map(row => row.slice());
       if(finalCur.row >= 0 && finalCur.row < PUYO_ROWS) simBoard[finalCur.row][finalCur.col] = mainC;
       if(finalSub.r >= 0 && finalSub.r < PUYO_ROWS) simBoard[finalSub.r][finalSub.c] = subC;
-      
-      const score = puyoEvalBoard(simBoard, pp);
-      if(score < bestScore) {
-        bestScore = score; const steps = []; const curRot = 0; const rotDiff = (rot - curRot + 4) % 4;
-        if(rotDiff === 1) steps.push('rotCW'); else if(rotDiff === 2) { steps.push('rotCW'); steps.push('rotCW'); }
-        else if(rotDiff === 3) steps.push('rotCCW');
-        const colDiff = col - pp.current.col;
-        if(colDiff < 0) for(let i=0;i<-colDiff;i++) steps.push('left');
-        if(colDiff > 0) for(let i=0;i<colDiff;i++) steps.push('right');
-        steps.push('hard'); bestPlan = { steps, step: 0, done: false };
-      }
+      results.push({ rot, col, board: simBoard });
     }
   }
-  return bestPlan;
+  return results;
+}
+
+function puyoComputeBestMove(pp) {
+  if(!pp.current) return null;
+  const mainC = pp.current.mainColor; const subC = pp.current.subColor;
+  const godMode = (pp.aiLevel === 'pro');
+  const placements = puyoEnumeratePlacements(pp.board, mainC, subC);
+  if(!placements.length) return null;
+
+  let bestScore = Infinity; let bestPick = null;
+
+  for(const placement of placements) {
+    let score = puyoEvalBoard(placement.board, pp);
+
+    // 上位AI（Pro/神モード）はネクストぷよも1手先読みし、続く配置まで含めて連鎖の伸びを評価する
+    if(godMode && pp.nextQueue && pp.nextQueue[0]) {
+      const nextPair = pp.nextQueue[0];
+      const nextPlacements = puyoEnumeratePlacements(placement.board, nextPair.main, nextPair.sub);
+      if(nextPlacements.length) {
+        let bestNext = Infinity;
+        for(const np of nextPlacements) {
+          const s2 = puyoEvalBoard(np.board, pp);
+          if(s2 < bestNext) bestNext = s2;
+        }
+        score = score * 0.5 + bestNext * 0.5;
+      }
+    }
+
+    if(score < bestScore) {
+      bestScore = score;
+      const steps = []; const rotDiff = (placement.rot - 0 + 4) % 4;
+      if(rotDiff === 1) steps.push('rotCW'); else if(rotDiff === 2) { steps.push('rotCW'); steps.push('rotCW'); }
+      else if(rotDiff === 3) steps.push('rotCCW');
+      const colDiff = placement.col - pp.current.col;
+      if(colDiff < 0) for(let i=0;i<-colDiff;i++) steps.push('left');
+      if(colDiff > 0) for(let i=0;i<colDiff;i++) steps.push('right');
+      steps.push('hard');
+      bestPick = { steps, step: 0, done: false };
+    }
+  }
+  return bestPick;
 }
 
 function puyoEvalBoard(board, pp) {
-  let score = 0; const aiLvl = parseInt(pp.aiLevel) || 5;
-  for(let c = 0; c < PUYO_COLS; c++) { for(let r = 0; r < PUYO_ROWS; r++) { if(board[r][c] !== null) { score += (PUYO_ROWS - r) * 2; break; } } }
-  for(let c = 0; c < PUYO_COLS; c++) { let found = false; for(let r = 0; r < PUYO_ROWS; r++) { if(board[r][c] !== null) found = true; else if(found) score += 15; } }
+  let score = 0;
+  const godMode = (pp.aiLevel === 'pro');
+  const aiLvl = godMode ? 12 : (parseInt(pp.aiLevel) || 5);
   const dirs = [[-1,0],[1,0],[0,-1],[0,1]];
+
+  // 高さ・凹凸・穴（本家と同じく、埋没した色ぷよは潰せなくなるので重く罰する）
+  const heights = [];
+  for(let c = 0; c < PUYO_COLS; c++) {
+    let h = 0;
+    for(let r = 0; r < PUYO_ROWS; r++) { if(board[r][c] !== null) { h = PUYO_ROWS - r; break; } }
+    heights.push(h);
+    score += h * h * 0.6;
+  }
+  let bump = 0; for(let i=1;i<heights.length;i++) bump += Math.abs(heights[i]-heights[i-1]);
+  score += bump * (godMode ? 1.0 : 1.6);
+
+  let holes = 0;
+  for(let c = 0; c < PUYO_COLS; c++) {
+    let found = false;
+    for(let r = 0; r < PUYO_ROWS; r++) { if(board[r][c] !== null) found = true; else if(found) holes++; }
+  }
+  score += holes * 25;
+
+  // 同色が隣接しているほど連鎖の種として評価（弱め、下の連結ボーナスと二重にならないよう控えめ）
   for(let r=0;r<PUYO_ROWS;r++) {
     for(let c=0;c<PUYO_COLS;c++) {
       if(!board[r][c] || board[r][c]==='nuisance') continue;
-      for(const [dr,dc] of dirs) { const nr=r+dr,nc=c+dc; if(nr>=0&&nr<PUYO_ROWS&&nc>=0&&nc<PUYO_COLS&&board[nr][nc]===board[r][c]) score -= aiLvl * 2; }
+      for(const [dr,dc] of dirs) { const nr=r+dr,nc=c+dc; if(nr>=0&&nr<PUYO_ROWS&&nc>=0&&nc<PUYO_COLS&&board[nr][nc]===board[r][c]) score -= 2; }
     }
   }
-  const groups = puyoFindPops(board); for(const g of groups) score -= g.length * aiLvl * 3;
+
+  const groups = puyoFindPops(board);
+  const maxHeight = Math.max(...heights);
+  // 天井が近い、または大量のおじゃまぷよが降ってくる直前は「今すぐ消す」ことを優先して生存を守る。
+  // それ以外（危なくない間）はできるだけ発火を我慢して大連鎖を育てさせる。
+  const heightDanger = maxHeight >= PUYO_ROWS - 3;
+  const nuisanceDanger = (pp.nuisancePending || 0) >= (godMode ? 24 : 18);
+  const dangerZone = heightDanger || nuisanceDanger;
+
+  if(groups.length > 0) {
+    const chainLen = puyoSimulateChainLength(board);
+    if(dangerZone) {
+      // 危険なときは連鎖の大小より「今すぐ消す」ことを最優先（生存 > 大連鎖）
+      score -= chainLen * 300 + 800;
+    } else if(chainLen <= 3) {
+      // 安全な間は小さい連鎖で単発発火してしまうのを強く嫌い、大連鎖の芽を摘まないようにする
+      score += godMode ? 900 : 350;
+    } else {
+      // 大きい連鎖ほど急激に高評価（べき指数を上げて大連鎖狙いをより顕著にする）。神モードほど顕著。
+      score -= Math.pow(chainLen, 2.4) * (godMode ? 55 : 30);
+      // 8連鎖は大連鎖の到達目標として桁違いのボーナスを与え、はっきり8連鎖を狙わせる。
+      // それ以上の連鎖はさらに追加ボーナスで報いる。
+      if(chainLen >= 8){
+        score -= (godMode ? 4000 : 2600) + (chainLen - 8) * (godMode ? 900 : 650);
+      }
+    }
+  } else {
+    // まだ発火しない盤面では、将来の連鎖の種（2〜3個の同色クラスタ）を評価
+    const visited = Array.from({length: PUYO_ROWS}, () => Array(PUYO_COLS).fill(false));
+    for(let r=0;r<PUYO_ROWS;r++) {
+      for(let c=0;c<PUYO_COLS;c++) {
+        if(!board[r][c] || board[r][c]==='nuisance' || visited[r][c]) continue;
+        const color = board[r][c]; const stack=[{r,c}]; visited[r][c]=true; let size=0;
+        while(stack.length) {
+          const {r:cr,c:cc} = stack.pop(); size++;
+          for(const [dr,dc] of dirs) {
+            const nr=cr+dr, nc=cc+dc;
+            if(nr>=0 && nr<PUYO_ROWS && nc>=0 && nc<PUYO_COLS && !visited[nr][nc] && board[nr][nc]===color) { visited[nr][nc]=true; stack.push({r:nr,c:nc}); }
+          }
+        }
+        if(size===2 || size===3) score -= size * (godMode ? 18 : 9);
+      }
+    }
+  }
   return score;
 }
 
@@ -3335,6 +4034,10 @@ function puyoGameLoop(ts) {
         puyoP1.dropCounter = 0; 
         if(!puyoMoveDown(puyoP1)) puyoLockPiece(puyoP1); 
         else recordPuyoAction(puyoP1.id, 'gravityDrop');
+      }
+      if(puyoP1.isAI && !window.isOnlineMatch) {
+        puyoP1.aiTimer += dt; const delay = puyoP1.aiLevel === 'pro' ? 30 : Math.max(30, 600 - parseInt(puyoP1.aiLevel)*60);
+        if(puyoP1.aiTimer >= delay) { puyoP1.aiTimer = 0; puyoAiTick(puyoP1); }
       }
     }
     if(puyoP2 && !puyoP2.actionLock && puyoP2.phase === 'control') {
@@ -3390,6 +4093,15 @@ function startPuyoGame(modeStr) {
     $('puyoP1Mode').textContent = modeStr === 'puyo_marathon' ? 'Mode: PUYO MARATHON' : 'Mode: PUYO FREE MARATHON';
     $('puyoP1NameLabel').textContent = t("p1");
   }
+  else if(modeStr === 'puyo_ai_solo') {
+    puyoP1 = new PuyoPlayer('PP1'); puyoP1.rng = new Xorshift(seed); puyoP1.gameType = 'puyo';
+    puyoP1.isAI = true; puyoP1.aiLevel = SETTINGS.aiLevel; puyoP2 = null;
+    $('cardPuyoP1').style.display = ''; $('cardPuyoP2').style.display = 'none';
+    puyoFillQueue(puyoP1, 3); puyoSpawnNext(puyoP1);
+    $('puyoP1Mode').textContent = `Mode: AI SOLO (Lv.${SETTINGS.aiLevel})`;
+    $('puyoP1NameLabel').textContent = `AI Lv.${SETTINGS.aiLevel}`;
+    if($('puyoP1ModeTag')) $('puyoP1ModeTag').textContent = 'AI';
+  }
  else if(modeStr === 'puyo_vs_local') {
     puyoP1 = new PuyoPlayer('PP1'); puyoP1.rng = new Xorshift(seed); puyoP1.gameType = 'puyo';
 // ...
@@ -3411,24 +4123,39 @@ function startPuyoGame(modeStr) {
     $('puyoP1NameLabel').textContent = t("p1"); $('puyoP2NameLabel').textContent = `AI Lv.${SETTINGS.aiLevel}`;
     $('puyoP2ModeTag').textContent = 'AI';
   }
-  else if(modeStr === 'puyotet_vs_local' || modeStr === 'puyotet_vs_ai' || window.isOnlineMatch) {
+  else if(modeStr === 'puyo_ai_vs_ai') {
+    puyoP1 = new PuyoPlayer('PP1'); puyoP1.rng = new Xorshift(seed); puyoP1.gameType = 'puyo';
+    puyoP1.isAI = true; puyoP1.aiLevel = SETTINGS.aiLevel;
+    puyoP2 = new PuyoPlayer('PP2'); puyoP2.rng = new Xorshift(seed + 999); puyoP2.gameType = 'puyo';
+    puyoP2.isAI = true; puyoP2.aiLevel = SETTINGS.aiLevel;
+    $('cardPuyoP1').style.display = ''; $('cardPuyoP2').style.display = '';
+    puyoFillQueue(puyoP1, 3); puyoSpawnNext(puyoP1); puyoFillQueue(puyoP2, 3); puyoSpawnNext(puyoP2);
+    $('puyoP1Mode').textContent = `Mode: AI vs AI (Lv.${SETTINGS.aiLevel})`; $('puyoP2Mode').textContent = `Mode: AI vs AI (Lv.${SETTINGS.aiLevel})`;
+    $('puyoP1NameLabel').textContent = `AI Lv.${SETTINGS.aiLevel}`; $('puyoP2NameLabel').textContent = `AI Lv.${SETTINGS.aiLevel}`;
+    if($('puyoP1ModeTag')) $('puyoP1ModeTag').textContent = 'AI';
+    if($('puyoP2ModeTag')) $('puyoP2ModeTag').textContent = 'AI';
+  }
+  else if(modeStr === 'puyotet_vs_local' || modeStr === 'puyotet_vs_ai' || modeStr === 'puyotet_ai_vs_ai' || window.isOnlineMatch) {
     puyotetP1Type = window.isOnlineMatch ? $('onlineMyGameType').value : ($('p1TypeSelect') ? $('p1TypeSelect').value : 'tetris');
     puyotetP2Type = window.isOnlineMatch ? window._opponentGameType : ($('p2TypeSelect') ? $('p2TypeSelect').value : 'puyo');
-    const isAI = modeStr === 'puyotet_vs_ai';
+    const isAI = modeStr === 'puyotet_vs_ai' || modeStr === 'puyotet_ai_vs_ai';
+    const isAIvsAI = modeStr === 'puyotet_ai_vs_ai';
     
     if(puyotetP1Type === 'puyo') {
       puyoP1 = new PuyoPlayer('PP1'); puyoP1.rng = new Xorshift(seed); puyoP1.gameType = 'puyo';
+      if(isAIvsAI) { puyoP1.isAI = true; puyoP1.aiLevel = SETTINGS.aiLevel; }
       $('cardPuyoP1').style.display = ''; $('cardP1').style.display = 'none';
       puyoFillQueue(puyoP1, 3); puyoSpawnNext(puyoP1);
-      $('puyoP1Mode').textContent = window.isOnlineMatch ? 'Online Match' : 'PuyoTet VS (Puyo)'; 
-      $('puyoP1NameLabel').textContent = window.isOnlineMatch ? (localStorage.getItem('puyotet_online_name') || 'P1') : 'P1 (Puyo)';
-      $('puyoP1ModeTag').className = 'gameModeTag tagPuyo'; $('puyoP1ModeTag').textContent = 'PUYO';
+      $('puyoP1Mode').textContent = window.isOnlineMatch ? 'Online Match' : (isAIvsAI ? 'PuyoTet AI vs AI (Puyo)' : 'PuyoTet VS (Puyo)'); 
+      $('puyoP1NameLabel').textContent = window.isOnlineMatch ? (localStorage.getItem('puyotet_online_name') || 'P1') : (isAIvsAI ? `AI Lv.${SETTINGS.aiLevel} (Puyo)` : 'P1 (Puyo)');
+      $('puyoP1ModeTag').className = 'gameModeTag tagPuyo'; $('puyoP1ModeTag').textContent = isAIvsAI ? 'AI' : 'PUYO';
     } else {
       puyoP1 = null; p1 = new Player('P1'); p1.rng = new Xorshift(seed);
+      if(isAIvsAI) { p1.isAI = true; p1.aiLevel = SETTINGS.aiLevel; }
       $('cardP1').style.display = ''; $('cardPuyoP1').style.display = 'none';
       refillBag(p1); for(let i=0;i<7;i++) p1.next.push(getNext(p1)); p1.current = p1.next.shift(); p1.next.push(getNext(p1));
-      $('p1Mode').textContent = window.isOnlineMatch ? 'Online Match' : 'PuyoTet VS (Tetris)';
-      if($('p1NameLabel')) $('p1NameLabel').textContent = window.isOnlineMatch ? (localStorage.getItem('puyotet_online_name') || 'P1') : t("p1");
+      $('p1Mode').textContent = window.isOnlineMatch ? 'Online Match' : (isAIvsAI ? 'PuyoTet AI vs AI (Tetris)' : 'PuyoTet VS (Tetris)');
+      if($('p1NameLabel')) $('p1NameLabel').textContent = window.isOnlineMatch ? (localStorage.getItem('puyotet_online_name') || 'P1') : (isAIvsAI ? `AI Lv.${SETTINGS.aiLevel}` : t("p1"));
     }
     
     if(puyotetP2Type === 'puyo') {
@@ -3473,6 +4200,7 @@ function tetrisPuyoTetGameLoop(ts) {
       if(p1.dropCounter >= p1.dropInterval) {
         p1.dropCounter = 0; if(!move(p1,0,1)) { recordAction(p1.id,'gravityLock'); placePieceAndHandle(p1); } else recordAction(p1.id,'gravityDrop');
       }
+      if(p1.isAI && !window.isOnlineMatch) processTetrisAI(p1, dt);
       if(!SETTINGS.lightweight) updateParticles(p1,dt);
     }
     if(puyotetP2Type === 'tetris' && p2 && !p2.actionLock) {
@@ -3564,6 +4292,102 @@ onlineTitleBtn.onclick = () => {
 };
 $('titleStart').parentNode.insertBefore(onlineTitleBtn, $('titleStart').nextSibling);
 
+/* =============================================================
+   世界ランキング / レーティング階級 / リアクション機能
+   ============================================================= */
+const RATING_TIERS = [
+    { min: 1800, name: 'MASTER',   color: '#ff6bd6', icon: '👑' },
+    { min: 1600, name: 'DIAMOND',  color: '#6ae3ff', icon: '💎' },
+    { min: 1400, name: 'PLATINUM', color: '#8effea', icon: '🔷' },
+    { min: 1200, name: 'GOLD',     color: '#ffd54f', icon: '🥇' },
+    { min: 1000, name: 'SILVER',   color: '#cfd8dc', icon: '🥈' },
+    { min: 0,    name: 'BRONZE',   color: '#d78a5a', icon: '🥉' },
+];
+function getTierInfo(rating) {
+    rating = (rating == null) ? 1200 : rating;
+    return RATING_TIERS.find(t => rating >= t.min) || RATING_TIERS[RATING_TIERS.length - 1];
+}
+
+function showRatingToast(delta, rating, streak) {
+    const el = $('ratingToast'); if (!el) return;
+    const win = delta >= 0;
+    const tier = getTierInfo(rating);
+    el.style.background = win ? 'linear-gradient(90deg,#2e7d32,#4caf50)' : 'linear-gradient(90deg,#7a1f1f,#c0392b)';
+    el.style.color = '#fff';
+    let streakText = (win && streak >= 2) ? ` 🔥${streak}連勝！` : '';
+    el.innerHTML = `${tier.icon} ${tier.name} レート ${rating} (${delta >= 0 ? '+' : ''}${delta})${streakText}`;
+    el.style.opacity = '1';
+    el.style.transform = 'translateX(-50%) translateY(0)';
+    clearTimeout(el._hideTimer);
+    el._hideTimer = setTimeout(() => {
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(-50%) translateY(-20px)';
+    }, 3200);
+}
+
+const EMOTE_LIST = ['👍', '🔥', '😂', '😭', '💢', 'GG'];
+function buildEmoteBar() {
+    const bar = $('emoteBar'); if (!bar || bar.childElementCount) return;
+    EMOTE_LIST.forEach(e => {
+        const b = document.createElement('button');
+        b.className = 'miniBtn';
+        b.style.fontSize = '18px';
+        b.style.padding = '8px 12px';
+        b.textContent = e;
+        b.onclick = () => {
+            if (window.socket && window.currentMatchId) {
+                window.socket.emit('send_emote', { matchId: window.currentMatchId, emote: e });
+            }
+        };
+        bar.appendChild(b);
+    });
+}
+function showEmoteBar() { buildEmoteBar(); if ($('emoteBar')) $('emoteBar').style.display = 'flex'; }
+function hideEmoteBar() { if ($('emoteBar')) $('emoteBar').style.display = 'none'; }
+
+function renderRankingData(data) {
+    const listArea = $('rankingListArea');
+    const banner = $('myRankBanner');
+    listArea.innerHTML = '';
+    const myCode = localStorage.getItem('puyotet_online_code');
+
+    if (data.myData) {
+        const tier = getTierInfo(data.myData.rating);
+        banner.style.display = 'block';
+        banner.innerHTML = `あなたの順位: <span style="color:#ffd54f;">#${data.myRank}</span>　${tier.icon} ${tier.name}　レート <span style="color:#ffd54f;">${data.myData.rating}</span>　(${data.myData.wins}勝 ${data.myData.losses}敗)　最高連勝 ${data.myData.best_streak}`;
+
+        // オンラインメニュー内の簡易表示も更新
+        $('myRatingCard').style.display = 'block';
+        $('myRatingTier').textContent = `${tier.icon} ${tier.name}`;
+        $('myRatingTier').style.color = tier.color;
+        $('myRatingNum').textContent = data.myData.rating;
+        $('myRatingWL').textContent = `${data.myData.wins} 勝 ${data.myData.losses} 敗`;
+    } else {
+        banner.style.display = 'none';
+    }
+
+    data.top.forEach(row => {
+        const tier = getTierInfo(row.rating);
+        const isMe = row.code === myCode;
+        const div = document.createElement('div');
+        div.style = `display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:6px; margin-bottom:4px; ${isMe ? 'background:rgba(255,213,79,0.15); border:1px solid rgba(255,213,79,0.4);' : 'background:rgba(255,255,255,0.03);'}`;
+        let medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : `#${row.rank}`;
+        div.innerHTML = `
+            <div style="display:flex; align-items:center; gap:10px;">
+                <span style="width:36px; text-align:center; font-weight:900;">${medal}</span>
+                <span style="font-weight:bold;">${row.name}</span>
+                <span style="font-size:12px; color:${tier.color};">${tier.icon} ${tier.name}</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:14px; font-size:13px; color:#ccc;">
+                <span>${row.wins}勝${row.losses}敗</span>
+                <span>🔥最高${row.best_streak}連勝</span>
+                <span style="font-weight:900; color:#ffd54f; font-size:16px;">${row.rating}</span>
+            </div>`;
+        listArea.appendChild(div);
+    });
+    if (data.top.length === 0) listArea.innerHTML = '<p style="text-align:center;color:#aaa;">まだ記録がありません。</p>';
+}
+
 function initOnline() {
     if(window.socket) return;
     window.socket = io();
@@ -3597,6 +4421,7 @@ function initOnline() {
                 $('loginStatusText').textContent = 'ログイン済み: ' + name;
                 $('loginErrorText').textContent = '';
                 socket.emit('get_friends');
+                socket.emit('get_ranking');
             } else {
                 $('loginErrorText').style.color = '#ff4d4d';
                 $('loginErrorText').textContent = res.message; 
@@ -3618,6 +4443,38 @@ function initOnline() {
         $('randomMatchBtn').disabled = true;
         $('randomMatchBtn').style.opacity = '0.5';
     };
+
+    // ===== 世界ランキング / オンライン人数 / レーティング / リアクション =====
+    $('openRankingBtn').onclick = () => {
+        socket.emit('get_ranking');
+        $('rankingOverlay').classList.add('show');
+    };
+
+    socket.on('online_count', (n) => {
+        $('onlineCountText').textContent = `🌐 オンライン: ${n}人`;
+    });
+
+    socket.on('ranking_data', (data) => renderRankingData(data));
+
+    socket.on('world_ranking_data', (data) => renderWorldRankingData(data));
+
+    socket.on('rating_update', (data) => {
+        showRatingToast(data.delta, data.rating, data.streak);
+        // オンラインメニューの簡易カードも同期しておく（開いたときに最新化）
+        if ($('myRatingNum')) $('myRatingNum').textContent = data.rating;
+    });
+
+    socket.on('receive_emote', (data) => {
+        const target = (typeof puyoP2 !== 'undefined' && puyoP2) ? puyoP2 : p2;
+        const isPuyo = (typeof puyoP2 !== 'undefined' && puyoP2 && puyoRunning);
+        if (target) {
+            if (isPuyo && typeof puyoShowNotice === 'function') {
+                puyoShowNotice(target, data.emote, '#ffd54f');
+            } else if (typeof showCenterNotice === 'function') {
+                showCenterNotice(target, data.emote, { color: '#ffd54f', time: 1600 });
+            }
+        }
+    });
 
     // フレンドリスト描画
     socket.on('friends_data', (list) => {
@@ -3643,13 +4500,14 @@ function initOnline() {
                 const favStar = f.is_favorite ? '★' : '☆';
                 const div = document.createElement('div');
                 div.className = 'friendItem';
+                const tier = getTierInfo(f.rating);
                 
                 let btnsHTML = `<button class="miniBtn hist">履歴</button><button class="miniBtn del" style="background:#822;">削除</button>`;
                 if(f.isOnline && f.currentActivity === 'idle') btnsHTML = `<button class="miniBtn chall" style="background:#4caf50;">対戦</button>` + btnsHTML;
                 else if(f.isOnline) btnsHTML = `<span style="font-size:12px;color:#aaa;margin-right:8px;">対戦中</span>` + btnsHTML;
 
                 div.innerHTML = `
-                    <div style="font-size:16px; font-weight:bold;"><span class="favBtn">${favStar}</span><span class="statusDot ${dotClass}"></span>${f.name}</div>
+                    <div style="font-size:16px; font-weight:bold;"><span class="favBtn">${favStar}</span><span class="statusDot ${dotClass}"></span>${f.name} <span style="font-size:11px; font-weight:bold; color:${tier.color};">${tier.icon}${f.rating != null ? f.rating : 1200}</span></div>
                     <div>${btnsHTML}</div>
                 `;
                 
@@ -3743,6 +4601,7 @@ const dateStr = h.date.replace(' ', 'T') + 'Z';
         else startMode = 'puyotet_vs_local';
         
         startGame(startMode);
+        showEmoteBar();
     });
 
     // 相手からのアクションを受信（予測補間で遅延改善）
